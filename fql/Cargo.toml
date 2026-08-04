@@ -1,0 +1,17 @@
+[package]
+name = "fql"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+axum = "0.8.9"
+clap = "4.6.3"
+ffmpeg-next = "8.1.0"
+image = "0.25.10"
+ndarray = "0.17.2"
+opencv = { version = "0.100.1", features = ["clang-runtime"] }
+ort = "2.0.0-rc.12"
+polars = "0.54.4"
+rustcv = "0.1.3"
+tokio.workspace = true
