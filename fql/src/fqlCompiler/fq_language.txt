@@ -1,0 +1,10 @@
+//finding an image or finding character in video 
+"SELECT * WHERE FRAME='target_frame' IN VID"
+"DELETE * WHERE"
+"REPLACE FRAME_ID SET NEW_FRAME IN VID"
+"APPEND FRAME ON PRECEDING_FRAME_ID IN VID"
+"SELECT * IN VID" => returns frames, their frame_id' 
+"DESCRIBE FRAME_ID" => gives info on the frame & description.
+
+
+
