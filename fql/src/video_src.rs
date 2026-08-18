@@ -1,4 +1,5 @@
 use crate::{frame::Frame,ffm_frame::FfmFrame, opencv_frame::OpenCvFrame};
+use crate::model_session;
 
 pub enum ApiPref{
     OCV,
@@ -22,31 +23,21 @@ impl Iterator for VideoSrc{
 }
 
 impl VideoSrc{
-    pub fn open(url: &String, preference: ApiPref)->VideoSrc{
-        match preference{
-            ApiPref::FFP =>{
-                let frms = FfmFrame::open(url);
-                VideoSrc::FFP(frms)
-            },
-            ApiPref::OCV =>{
-                let frms = OpenCvFrame::open(url);
-                VideoSrc::OCV(frms)
-            }
-        }
-    }
-
     pub fn open_and_process_video(url: &String, preference: ApiPref){
+       let mut session = model_session::init_yolo_sesion(true);
+
        match preference{
            ApiPref::OCV =>{
                let frms_iter = OpenCvFrame::open(url);
                for frame in frms_iter{
-                   frame.process_frame();
+                   frame.process_frame(&mut session, true);
                }
            },
            ApiPref::FFP =>{
                let frms_iter = FfmFrame::open(url);
-               for frame in frms_iter{
-                   frame.process_frame();
+               for mut frame in frms_iter{
+                   frame.frm_no +=1;
+                   frame.process_frame(&mut session, true);
                }
            }
        }
