@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{collections::{HashSet}, time::Duration};
 use crate::letterbox::{LetterBoxedFrame, LetterBoxInfo};
 use ffmpeg_next::{self as ffmpeg, format::Pixel, software::scaling::{flag::Flags, context::Context}};
 use image::{DynamicImage, RgbImage};
@@ -66,7 +66,7 @@ impl Frame{
             / time_base.denominator() as f64;
 
         Duration::from_secs_f64(seconds)
-    });
+        });
 
        let timestamp_seconds = timestamp_seconds.expect("Unable to convert timestamp into seconds for frame.");
        if ffrm.format() == Pixel::RGB24{
@@ -122,7 +122,7 @@ impl Frame{
        }
     }
 
-    pub fn process_frame(&self, session: &mut Session, use_yolo26:bool){
+    pub fn process_frame(&self, session: &mut Session, use_yolo26:bool, selections: &HashSet<usize>){
         let letterboxed = self.letterbox(640);
         let tensor = letterboxed.to_tensor();
 
@@ -133,17 +133,17 @@ impl Frame{
 
         let output = outputs[0].try_extract_array::<f32>().expect("Failure to get output by extractin array at outputs[0] index 0");
 
-        println!("output shape: {:?}", output);
+        //println!("output shape: {:?}", output);
 
         let num_predictions = output.shape()[1];
         println!("predictions: {}", num_predictions);
 
         let output = output.index_axis(ndarray::Axis(0), 0);
-        println!("Output2's shape: {:?}", output.shape());
+        //println!("Output2's shape: {:?}", output.shape());
 
-        let mut detections = Vec::new();
+        let mut saved_detections = Vec::new();
         if use_yolo26{
-            println!("Using yolo26n..");
+            //println!("Using yolo26n..");
             for pred in output.axis_iter(ndarray::Axis(0)) {
                 let score = pred[4];
                 if score < 0.5 {
@@ -157,9 +157,12 @@ impl Frame{
                 let y2 = pred[3];
 
                 let class_id = pred[5] as usize;
+                
+                //returning
+                if !selections.is_empty() && !selections.contains(&class_id){
+                   continue;
+                }
 
-
-                     
                 let (x1, y1, x2, y2) = letterboxed.info.to_original(
                         x1,
                         y1,
@@ -167,18 +170,18 @@ impl Frame{
                         y2,
                     );
 
-                detections.push(Detection {
-                    class_id,
-                    score,
-                    x1,
-                    y1,
-                    x2,
-                    y2,
-                    frm_no: self.frm_no,
-                    timestamp: self.timestamp,
-                });
+                let detection = Detection {
+                     class_id,
+                     score,
+                     x1,
+                     y1,
+                     x2,
+                     y2,
+                     frm_no: self.frm_no,
+                     timestamp: self.timestamp,
+                };
 
-
+                detect(detection, &mut saved_detections);
             }
         }else{
             println!("Using yolo11n..");
@@ -225,7 +228,7 @@ impl Frame{
                 let y2 = y2 * scale_x;
                 //now the ox has regained original frame oordinates
                 
-                detections.push(Detection{
+                let detection = Detection{
                     class_id: best_class,
                     score: best_score,
                     x1,
@@ -234,26 +237,28 @@ impl Frame{
                     y2,
                     frm_no: self.frm_no,
                     timestamp: self.timestamp,
-                });
+                };
+
+                detect(detection, &mut saved_detections)
             }
+            println!("DETECTIONS FOUND:\n {:#?}", saved_detections);
         }
 
         //nms to remove duplicates, Non-Maximum Suppression(NMS)
         //sorts in descending order.
         // detections.sort_by(|a, b| b.score.total_cmp(&a.score));
         
-        detections.sort_by(|a, b| a.score.total_cmp(&b.score));
+        saved_detections.sort_by(|a, b| a.score.total_cmp(&b.score));
         let mut final_dets = Vec::new();
-        while let Some(det) = detections.pop(){
+        while let Some(det) = saved_detections.pop(){
             final_dets.push(det.clone());
 
-            detections.retain(|other|{
+            saved_detections.retain(|other|{
                 //intersection over union
                 iou(&det, other.clone()) < 0.45
             });
         }
-
-        detect(&final_dets); 
+        println!("DETECTIONS FOUND:\n {:#?}", final_dets);
     }
 
     pub fn to_tensor(&self)->Result<Array4<f32>, ndarray::ShapeError>{

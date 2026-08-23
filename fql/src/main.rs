@@ -8,6 +8,7 @@ pub mod video_src;
 pub mod fql_compiler;
 pub mod letterbox;
 pub mod model_session;
+pub mod tracker;
 
 
 use std::{env, path::Path};

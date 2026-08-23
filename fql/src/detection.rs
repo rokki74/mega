@@ -95,7 +95,39 @@ const COCO_CLASSES: [&str; 80] = [
     "toothbrush",
 ];
 
-pub fn detect(detections: &Vec<Detection>){
+pub fn detect(d: Detection, saved_detections: &mut Vec<Detection>){
+       println!("{} {:.2} ({}, {}, {}, {})",
+       COCO_CLASSES[d.class_id],
+       d.score,
+       d.x1,
+       d.y1,
+       d.x2,
+       d.y2
+       );
+
+       let frm_no = d.frm_no;
+
+       match d.timestamp{
+           Some(timestamp) =>{
+              match d.class_id{     
+                   0 => println!("PERSON detected on timestamp: {:#?} for frame number: {}", timestamp, frm_no),
+                   2 |3 | 5| 7 =>println!("VEHICLE detected on timestamp: {:#?} for frame number: {}", timestamp, frm_no),
+                   16..=21 =>println!("ANIMAL detected on timestamp: {:#?} for frame number: {}", timestamp, frm_no),
+                   _=>{}
+               }
+           },
+           None =>{
+              match d.class_id{
+                   0 => println!("PERSON detected on timestamp: {:#?} for frame number: {}", "No Available timestamp", frm_no),
+                   2 |3 | 5| 7 =>println!("VEHICLE detected on timestamp: {:#?} for frame number: {}", "No Available timestamp", frm_no),
+                   16..=21 =>println!("ANIMAL detected on timestamp: {:#?} for frame number: {}", "No Available timestamp", frm_no),
+                   _=>{}
+              }
+           }
+       }
+}
+
+pub fn detect_all(detections: &Vec<Detection>){
    for d in detections{
        println!("{} {:.2} ({}, {}, {}, {})",
        COCO_CLASSES[d.class_id],
