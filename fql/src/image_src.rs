@@ -2,6 +2,10 @@ use std::collections::HashSet;
 
 use crate::{frame::Frame, model_session};
 
+pub fn open(location: &String)->image::DynamicImage{
+    image::open(location).unwrap()
+}
+
 pub fn process_image(location: &String){
     let img = image::open(location).unwrap();
     let frame = Frame::from_image(img);

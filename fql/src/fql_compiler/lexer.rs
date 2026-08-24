@@ -31,9 +31,20 @@ pub enum TokenType{
     EOF,
 }
 
+
+
 pub struct Token{
-    token_type: TokenType,
-    value: String,
+    pub token_type: TokenType,
+    pub value: String,
+}
+
+impl Token{
+    pub fn empty()->Token{
+        Token{
+            token_type: TokenType::EOF,
+            value: String::new(),
+        }
+    }
 }
 
 pub struct Lexer<'a>{
@@ -45,17 +56,18 @@ pub struct Lexer<'a>{
 
 
 impl <'a> Lexer<'a>{
-    pub fn new(input: &str)->Lexer{
-       let mut l = Lexer{
-            input,
+    pub fn empty()->Lexer<'a>{
+        Lexer{
+            input: "",
             left_pointer: 0,
             right_pointer: 1,
             ch: 0,
-        };
+        }
+    }
 
-       l.read_char();
-
-       l
+    pub fn new(&mut self, input: &'a str){
+       self.input = input;  
+       self.read_char();
     }
 
     fn read_char(&mut self){

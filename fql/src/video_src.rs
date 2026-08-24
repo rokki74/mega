@@ -1,6 +1,7 @@
-use std::collections::HashSet;
 use crate::{frame::Frame,ffm_frame::FfmFrame, opencv_frame::OpenCvFrame};
 use crate::model_session;
+use ort::{session::Session};
+
 
 pub enum ApiPref{
     OCV,
@@ -23,24 +24,37 @@ impl Iterator for VideoSrc{
     }
 }
 
-impl VideoSrc{
-    pub fn open_and_process_video(url: &String, preference: ApiPref){
-       let mut session = model_session::init_yolo_sesion(true);
+enum FrameIter{
+    Ocv(OpenCvFrame),
+    Ffm(FfmFrame),
+}
 
-       let selections = HashSet::new();
+impl Iterator for FrameIter{
+    type Item = Frame;
+    fn next(&mut self) -> Option<Self::Item> {
+       match self{
+           FrameIter::Ocv(iter) =>{
+               iter.next()
+           },
+           FrameIter::Ffm(iter) =>{
+               iter.next()
+           }
+       } 
+    }
+}
+
+impl VideoSrc{
+    pub fn open(url: &String, preference: &ApiPref) ->(FrameIter, Session){
+       let session = model_session::init_yolo_sesion(true);
+
        match preference{
            ApiPref::OCV =>{
                let frms_iter = OpenCvFrame::open(url);
-               for frame in frms_iter{
-                   frame.process_frame(&mut session, true, &selections);
-               }
+               return (FrameIter::Ocv(frms_iter), session);
            },
            ApiPref::FFP =>{
                let frms_iter = FfmFrame::open(url);
-               for mut frame in frms_iter{
-                   frame.frm_no +=1;
-                   frame.process_frame(&mut session, true, &selections);
-               }
+               return (FrameIter::Ffm(frms_iter), session);
            }
        }
     }

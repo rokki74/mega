@@ -3,11 +3,11 @@
 "UPDATE WHERE FRAME_ID='' FROM VIDEO 'url' SET NEW_FRAME FROM VID / OBJECT_IMAGE 'url' / SET FRAME_ID FROM VIDEO 'url'" 
 
 "SELECT * FROM VIDEO/IMAGE 'url'";
-"SELECT * FROM VIDEO 'url' WHERE FRAME_ID = '' RANGE 'start' 'end'";
+"SELECT * FROM VIDEO 'url' WHERE OBJECT_IMAGE = '' RANGE 'start' 'end'";
 "SELECT * FROM VIDEO 'url' RANGE 'start' 'end'";
 "SELECT * FROM VIDEO 'url' WHERE class_name / class_id = 'val'";
 ".......... WHERE FRAME_ID= 'val' AND class_name='val'":
-"SELECT OBJECT_IMAGE 'url' FROM VIDEO 'url' RANGE 'start' 'end'";
+"SELECT OBJECT_IMAGE 'url' FROM VIDEO 'url' RANGE 'start' 'end'"lose
 "SELECT OBJECT_IMAGE 'url' AND OBJECT_IMAGE 'ur' FROM VIDEO 'url' or VIDEO 'url'"
 
 "INSERT OBJECT_IMAGE/ FRAME_ID FROM VIDEO 'url' INTO VIDEO 'ulr'" 
