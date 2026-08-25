@@ -1,0 +1,4 @@
+./makefile 
+./assets
+./scripts/*.onnx 
+./scripts/*.pt
