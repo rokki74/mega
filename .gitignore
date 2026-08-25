@@ -1,5 +1,5 @@
-./target/
-./fql/venv/
-./fql/assets/
-./fql/scripts/*.pt
-./fql/scripts/*.onnx
+target/
+fql/venv/
+fql/assets/
+fql/scripts/*.pt
+fql/scripts/*.onnx
