@@ -72,6 +72,12 @@ impl DeleteStatement{
       non_targetted: None,
       }
   }
+
+   fn execute(&self)->Result<>{
+
+
+       Ok()
+   }
 }
 
 type FrameId = usize;
@@ -84,13 +90,48 @@ enum Obj{
 type SrcObj = Obj;
 type TargetObj = Obj;
 
+enum UpdateObj {
+    Frame(FrmSrc),
+    Image(URL),
+}
+
+enum FrmSrc{
+    Frame(FrameId),
+    ALL,
+}
+
 struct UpdateStatement{
-    source: Option<SrcObj>,
-    target: Option<TargetObj>,
+    source: Option<UpdateObj>,
+    final_set: Option<UpdateObj>,
+}
+
+impl  UpdateStatement {
+    fn empty()->UpdateStatement{
+        UpdateStatement { source: None, final_set: None }
+    }
+
+    fn execute(&self)->Result<>{
+
+
+       Ok()
+   }
 }
 
 struct BuildStatement{
    video_name: String,
+}
+
+impl BuildStatement{
+    fn empty()->BuildStatement{
+        BuildStatement { video_name: String::new() }
+    }
+
+    fn execute(&self)->Result<>{
+        let name = self.video_name.clone();
+        println!("Building your video: {}...  ....", name);
+
+        Ok()
+    }
 }
 
 impl SelectStatement{
@@ -166,26 +207,45 @@ impl <'a> Parser<'a>{
      }
 
 
-     pub fn parse(self, fql: String){
+     pub fn parse_and_execute(&mut self, fql: String)->Option<>{
          self.lexer.new(&fql);
-         loop{
              let token = self.lexer.next_token(self.keywords);
              
              match token.token_type{
-                 TokenType::Update => self.parse_update(),
-                 TokenType::Delete => self.parse_delete(),
-                 TokenType::Select => self.parse_select(),
-                 TokenType::Build => self.parse_build(),
-                 _=>{ println!("Illegal value {} in statement: {}", token.value, fql); break;},
+                 TokenType::Update => { 
+                    let stmt = self.parse_update();
+                    let results = stmt.execute();
+
+                    Some(results)
+                 },
+                 TokenType::Delete => {
+                     let stmt = self.parse_delete();
+                     let results = stmt.execute();
+
+                     Some(results)
+                 },
+                 TokenType::Select => {
+                     let stmt = self.parse_select(); 
+                     let results = stmt.execute();
+                     Some(results)
+                 },
+                 TokenType::Build => {
+                     let stmt = self.parse_build();
+                     let results = stmt.execute();
+                     Some(results)
+                 }
+                 _=>{ 
+                     println!("Illegal value {} in statement: {}", token.value, fql);
+                     None
+                 },
              }
-         }
      }
 
      fn parse_build(&mut self)->BuildStatement{
           let stmt = BuildStatement::empty();
 
           self.expect("build");
-          stmt.video_name = self.cur_token.value;
+          stmt.video_name = self.cur_token.value.clone;
 
           stmt
      }
@@ -196,14 +256,27 @@ impl <'a> Parser<'a>{
          self.expect("delete");
 
          //delete * From video 'url' where FrameId = ''
-         self.expect("*");
+         match self.cur_token.token_type{
+             TokenType::Star =>{
+                self.frm_src = Some(FrmSrc::ALL);
+             },
+             TokenType::FrameId =>{
+                 self.expect("frameid");
+
+                 let frm_id = self.cur_token.value;
+
+                 stmt.frm_src = Some(FrmSrc::Frame(frm_id));
+             },
+             _=>{},
+         }
          self.expect("from");
          match self.cur_token.token_type{
              TokenType::Video => {
                self.expect("video"); 
 
             stmt.target = Some(TargetObj::VID(self.cur_token.value.clone()));
-              stmt
+               self.expect("string");
+               stmt
              },
              TokenType::ObjectImage =>{
                 self.expect("ObjectImage");
@@ -212,15 +285,6 @@ impl <'a> Parser<'a>{
                 stmt.target = Some(TargetObj::IMAGE(img_url));
 
                 stmt.non_targetted = None;
-                }else{
-
-                   let v = Vec::new();
-                   self.expect(strin)
-                   loop{
-                             
-                   } 
-                }
-
                 stmt
              },
              _=>{stmt.target = None;
@@ -232,7 +296,43 @@ impl <'a> Parser<'a>{
      fn parse_update(&mut self)->UpdateStatement{
         let stmt = UpdateStatement::empty();
         
+        self.expect("update"); 
+        match self.cur_token.token_type{
+           TokenType::FrameId =>{
+               self.expect("frameid");
+               let frm_id = self.cur_token.value;
+               stmt.source = Some(UpdateObj::Frame(FrmSrc::Frame(frm_id)));
+
+                let _x = self.lexer.next_token(self.keywords);
+           },
+           TokenType::Star =>{
+               self.expect("star");
+
+               stmt.source = Some(UpdateObj::Frame(FrmSrc::ALL));
+           },
+           _=> {stmt.source = None},
+        }
+
+        self.expect("set"); 
         
+        match self.cur_token.token_type{
+            TokenType::FrameId =>{
+               self.expect("frameid");
+               let frm_id = self.cur_token.value; 
+               stmt.final_set = Some(UpdateObj::Frame(FrmSrc::Frame(frm_id)));
+
+               let _x = self.lexer.next_token(self.keywords);
+            },
+            TokenType::ObjectImage =>{
+               self.expect("objectimage");
+
+               let img_url = self.cur_token.value;
+               stmt.final_set = Some(UpdateObj::Image(img_url));
+               self.expect("string");
+            },
+            _=>{stmt.final_set = None}
+        }
+
         stmt
      }
 
