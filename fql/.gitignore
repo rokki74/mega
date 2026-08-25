@@ -2,3 +2,4 @@
 ./assets
 ./scripts/*.onnx 
 ./scripts/*.pt
+./venv
