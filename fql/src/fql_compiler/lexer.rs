@@ -28,6 +28,7 @@ pub enum TokenType{
     String,
     Star,
     EQ,
+    Comma,
     EOF,
 }
 

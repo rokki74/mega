@@ -1,19 +1,41 @@
-use std::{collections::HashMap, hash::{BuildHasher, Hash}, time::Duration};
-use crate::{fql_compiler::lexer::{Lexer, Token, TokenType}, frame::Frame, image_src, video_src::{ApiPref, VideoSrc}};
+use std::{collections::HashMap, time::Duration};
+use crate::{fql_compiler::lexer::{Lexer, Token, TokenType}, video_src::{ApiPref}};
 
-struct Parser<'a>{
-    keywords: &'a HashMap<&'a str, TokenType>,
-    lexer: &'a Lexer,
+pub struct Parser<'a>{
+    keywords: HashMap<&'a str, TokenType>,
+    lexer: Lexer<'a>,
     peek_token: Token,
     cur_token: Token,
 }
 
-enum Object {
+pub enum Object {
     Frame,
     Image(String),
 }
 
-struct SelectStatement{
+pub enum FqlOutCome{
+    Single(String),
+    Multiple(Vec<String>),
+}
+
+pub trait Statement{
+  fn execute(&self)->Option<FqlOutCome>{None}
+}
+
+pub enum StatementEnum<'a>{
+    Update(UpdateStatement),
+    Delete(DeleteStatement),
+    Select(&'a SelectStatement),
+    Build(BuildStatement),
+}
+
+impl <'a>Statement for StatementEnum<'a>{
+    pub fn execute()->Option<FqlOutCome>{
+       todo!()
+    }
+}
+
+pub struct SelectStatement{
     object: Object,
     url: String,
     timeline: Option<(Duration, Duration)>,
@@ -34,50 +56,32 @@ impl SelectStatement{
 }
 
 impl <'a> Parser<'a>{
-    fn empty()->Parser<'a>{
+   pub fn empty()->Parser<'a>{
         Parser{
-            keywords: &HashMap::new(),
-            lexer: &Lexer::empty(),
+            keywords: HashMap::new(),
+            lexer: Lexer::empty(),
             peek_token: Token::empty(),
             cur_token: Token::empty(),
         }
     }
 }
 
-trait Statement{
-  fn execute(&self){}
-}
-
 #[derive(Debug)]
-enum UrlSrc{
+pub enum UrlSrc{
     Vid(String),
     Img(String),
 }
 
 #[derive(Debug)]
-struct FramesDB{
+pub struct FramesDB{
     source: UrlSrc,
     target: Option<UrlSrc>,
     table: HashMap<usize, Option<Duration>>,
 }
 
-struct DeleteStatement{
-   target: Option<TargetObj>,
-   non_targetted: Option<Vec<usize>>,
-}
-
-impl DeleteStatement{
-   pub fn empty()->DeleteStatement{
-      DeleteStatement { target: None,
-      non_targetted: None,
-      }
-  }
-
-   fn execute(&self)->Result<>{
-
-
-       Ok()
-   }
+pub enum DELETECHOICE{
+    IDS(Vec<FrameId>),
+    ALL
 }
 
 type FrameId = usize;
@@ -89,82 +93,45 @@ enum Obj{
 
 type SrcObj = Obj;
 type TargetObj = Obj;
+type VidUrl = String;
 
-enum UpdateObj {
-    Frame(FrmSrc),
-    Image(URL),
+pub enum UpdateObj{
+   ObjectImages(Vec<URL>),
+   Vids(Vec<FrameId>, VidUrl)
 }
 
-enum FrmSrc{
-    Frame(FrameId),
-    ALL,
+
+pub struct DeleteStatement{
+   target_frames: Option<DELETECHOICE>,
+   target_obj: Option<SrcObj>,
 }
 
-struct UpdateStatement{
-    source: Option<UpdateObj>,
-    final_set: Option<UpdateObj>,
+impl DeleteStatement{
+   pub fn empty()->DeleteStatement{
+      DeleteStatement { target_frames: None,
+      target_obj: None,
+      }
+  }
+}
+
+pub struct UpdateStatement{
+    original_obj: Option<UpdateObj>,
+    final_obj: Option<UpdateObj>,
 }
 
 impl  UpdateStatement {
     fn empty()->UpdateStatement{
-        UpdateStatement { source: None, final_set: None }
+        UpdateStatement { original_obj: None, final_obj: None }
     }
-
-    fn execute(&self)->Result<>{
-
-
-       Ok()
-   }
 }
 
-struct BuildStatement{
+pub struct BuildStatement{
    video_name: String,
 }
 
 impl BuildStatement{
     fn empty()->BuildStatement{
         BuildStatement { video_name: String::new() }
-    }
-
-    fn execute(&self)->Result<>{
-        let name = self.video_name.clone();
-        println!("Building your video: {}...  ....", name);
-
-        Ok()
-    }
-}
-
-impl SelectStatement{
-    fn execute(&self) -> FramesDB{
-       let (frms_iter, session) = VideoSrc::open(&self.url, &self.preference); 
-//chunk_time ???
-       
-       let table: HashMap<usize, Option<Duration>> = HashMap::new();
-       match self.object{
-           Object::Image(img_url) =>{
-               //find where this image occurs in the video 
-               let d_img = image::open(img_url).expect("error opening image");
-               let my_image = Frame::from_image(d_img);
-
-               let mut frms_db = FramesDB{source: UrlSrc::Img(img_url), target: None, table};
-               //matching logic
-               
-               println!("FOUND FRAMEID'S: FRAME TIMESTAMP");
-               println!("#?{}",frms_db);
-               return frms_db;
-           },
-           Object::Frame =>{
-               let mut frms_db = FramesDB{source: UrlSrc::Vid(self.url), table, target: None};
-               for frm in frms_iter{
-                   frms_db.table.insert(frm.frm_no, frm.timestamp);
-               }
-
-
-               println!("FOUND FRAMEID'S: FRAME TIMESTAMP");
-               println!("#?{}",frms_db);
-               return frms_db;
-           },
-       }
     }
 }
 
@@ -201,71 +168,80 @@ impl <'a> Parser<'a>{
        keywords.insert("delete", TokenType::Delete);
 
        let mut parser = Parser::empty();
-       parser.keywords = &keywords;
+       parser.keywords = keywords;
 
        parser
      }
 
+     pub fn parse(&mut self, query: String)->StatementEnum{
+         self.lexer.new(&query);
+         let token = self.lexer.next_token(&self.keywords);
 
-     pub fn parse_and_execute(&mut self, fql: String)->Option<>{
-         self.lexer.new(&fql);
-             let token = self.lexer.next_token(self.keywords);
+         println!("handling the token: token val: {}, token_type: {} Inside the parser", token.value, token.token_type);
              
-             match token.token_type{
-                 TokenType::Update => { 
-                    let stmt = self.parse_update();
-                    let results = stmt.execute();
-
-                    Some(results)
-                 },
-                 TokenType::Delete => {
-                     let stmt = self.parse_delete();
-                     let results = stmt.execute();
-
-                     Some(results)
-                 },
-                 TokenType::Select => {
-                     let stmt = self.parse_select(); 
-                     let results = stmt.execute();
-                     Some(results)
-                 },
-                 TokenType::Build => {
-                     let stmt = self.parse_build();
-                     let results = stmt.execute();
-                     Some(results)
-                 }
-                 _=>{ 
-                     println!("Illegal value {} in statement: {}", token.value, fql);
-                     None
-                 },
+         match token.token_type{
+             TokenType::Update => { 
+                self.parse_update()
+             },
+             TokenType::Delete => {
+                 self.parse_delete()
+             },
+             TokenType::Select => {
+                 self.parse_select() 
+             },
+             TokenType::Build => {
+                 self.parse_build()
              }
+             _=>{ 
+                 println!("Illegal value {} in statement: {}", token.value, query);
+                 panic!("Expected an fql statement/query, cannot process a non-fql query input");
+             },
+         }
      }
 
-     fn parse_build(&mut self)->BuildStatement{
-          let stmt = BuildStatement::empty();
+     fn parse_build(&mut self)->StatementEnum{
+          let mut stmt = BuildStatement::empty();
 
           self.expect("build");
-          stmt.video_name = self.cur_token.value.clone;
+          stmt.video_name = self.cur_token.value.clone();
 
-          stmt
+          StatementEnum::Build(stmt)
      }
 
-     fn parse_delete(&mut self) ->DeleteStatement{
+     fn parse_delete(&mut self) ->StatementEnum{
          let mut stmt = DeleteStatement::empty();
 
          self.expect("delete");
 
-         //delete * From video 'url' where FrameId = ''
+         //delete * From video 'url'
          match self.cur_token.token_type{
              TokenType::Star =>{
-                self.frm_src = Some(FrmSrc::ALL);
+                stmt.target_frames = Some(DELETECHOICE::ALL);
              },
              TokenType::FrameId =>{
                  self.expect("frameid");
+                 let f_ids:Vec<usize> = Vec::new();
+                 loop{
+                    let frm_id = self.cur_token.value;
+                    
+                    let pk_tkn = self.keywords.get(&self.peek_token);
+                    if let Some(tkn) = pk_tkn{
+                       match tkn{
+                           TokenType::Comma =>{
+                               f_ids.push(frm_id);
+                               self.expect(",");
+                           },
+                           _ => {
+                               f_ids.push(frm_id);
+                               break;
+                           },
+                       }
+                    }else{
+                        break;
+                    }
+                 }
 
-                 let frm_id = self.cur_token.value;
-
-                 stmt.frm_src = Some(FrmSrc::Frame(frm_id));
+                 stmt.target_frames = Some(DELETECHOICE::IDS(f_ids));
              },
              _=>{},
          }
@@ -274,69 +250,103 @@ impl <'a> Parser<'a>{
              TokenType::Video => {
                self.expect("video"); 
 
-            stmt.target = Some(TargetObj::VID(self.cur_token.value.clone()));
+               stmt.target_obj = Some(SrcObj::VID(self.cur_token.value.clone()));
                self.expect("string");
-               stmt
+               
+               StatementEnum::Delete(stmt) 
              },
              TokenType::ObjectImage =>{
                 self.expect("ObjectImage");
                 let img_url = self.cur_token.value.clone();
 
-                stmt.target = Some(TargetObj::IMAGE(img_url));
+                stmt.target_obj = Some(SrcObj::IMAGE(img_url));
 
-                stmt.non_targetted = None;
-                stmt
+                
+                 StatementEnum::Delete(stmt) 
              },
-             _=>{stmt.target = None;
-                 stmt 
+             _=>{stmt.target_obj = None;
+                 StatementEnum::Delete(stmt) 
              }
          }
      }
 
-     fn parse_update(&mut self)->UpdateStatement{
+     fn parse_update(&mut self)->StatementEnum{
         let stmt = UpdateStatement::empty();
         
+        //Update FrameId '' From Video 'url' Set ObjectImage 'url' / FrameId Video '';
         self.expect("update"); 
         match self.cur_token.token_type{
            TokenType::FrameId =>{
                self.expect("frameid");
-               let frm_id = self.cur_token.value;
-               stmt.source = Some(UpdateObj::Frame(FrmSrc::Frame(frm_id)));
+               let u_orgn: Vec<FrameId> = Vec::new();
+         
+               while self.match_next(TokenType::Comma){
+                   let frm_id = self.cur_token.value;
+                   u_orgn.push(frm_id);
+               }
+                println!("breaking out no more commas at update statement");
 
-                let _x = self.lexer.next_token(self.keywords);
-           },
-           TokenType::Star =>{
-               self.expect("star");
+               self.expect("from");
+               self.expect("video");
+               let url = self.cur_token.value;
 
-               stmt.source = Some(UpdateObj::Frame(FrmSrc::ALL));
+               stmt.original_obj = Some(UpdateObj::Vids(u_orgn, url));
            },
-           _=> {stmt.source = None},
+           _=> {
+                eprintln!("Expected FrameId token found: {} of type: {}",self.cur_token.value, self.cur_token.token_type);
+                stmt.original_obj = None;    
+           },
         }
 
         self.expect("set"); 
-        
         match self.cur_token.token_type{
-            TokenType::FrameId =>{
+           TokenType::FrameId =>{
                self.expect("frameid");
-               let frm_id = self.cur_token.value; 
-               stmt.final_set = Some(UpdateObj::Frame(FrmSrc::Frame(frm_id)));
+               let u_fnl: Vec<FrameId> = Vec::new();
+         
+               while self.match_next(TokenType::Comma){
+                   let frm_id = self.cur_token.value;
+                   u_fnl.push(frm_id);
+               }
+                println!("breaking out no more commas on update statement");
 
-               let _x = self.lexer.next_token(self.keywords);
-            },
-            TokenType::ObjectImage =>{
+               self.expect("from");
+               self.expect("video");
+               let url = self.cur_token.value;
+
+               stmt.original_obj = Some(UpdateObj::Vids(u_fnl, url));
+           },
+           TokenType::ObjectImage =>{
                self.expect("objectimage");
 
-               let img_url = self.cur_token.value;
-               stmt.final_set = Some(UpdateObj::Image(img_url));
-               self.expect("string");
-            },
-            _=>{stmt.final_set = None}
+               let ob_imgs: Vec<URL> = Vec::new();
+
+               loop{
+                   let url = self.cur_token.value;
+
+                   ob_imgs.push(url);
+
+                   match self.peek_token.token_type{
+                       TokenType::Comma=>{
+                          self.expect(",");
+                        },
+                        _=>{
+                            println!("No more commas!");
+                            break;
+                        },
+                   }
+                }
+           },
+           _=> {
+                eprintln!("Expected FrameId token found: {} of type: {}",self.cur_token.value, self.cur_token.token_type);
+                stmt.original_obj = None;    
+           },
         }
 
-        stmt
+        StatementEnum::Update(stmt)
      }
 
-     fn parse_select(self)-> &'a SelectStatement{
+     fn parse_select(self)-> StatementEnum{
         self.expect("select");
        
         let mut stmt = &SelectStatement::empty();
@@ -402,20 +412,30 @@ impl <'a> Parser<'a>{
                   }
                }
            },
-           _ => {break;},
+           _=>{},
         } 
 
-        stmt
+        StatementEnum::Select(stmt)
      }
 
      fn expect(&self, t: &str){
          if let Some(val) = self.keywords.get(&t){
              println!("Done expecting token: {}, found token type: {}",t, val);
 
-             self.cur_token = self.lexer.next_token(self.keywords);
+             self.cur_token = self.peek_token;
+             self.peek_token = self.lexer.next_token(&self.keywords);
          }else{
              eprintln!("Error occurred:  unexpected {} in the fql statement", t);
          }
+     }
+
+     fn match_next(&self, t: TokenType)->bool{
+         if self.peek_token.token_type == t{
+           return true;
+         }
+         eprintln!("Error occurred:  unexpected {} in the fql statement", t);
+         
+         false
      }
 }
 
