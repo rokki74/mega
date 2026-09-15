@@ -1,10 +1,30 @@
-use crate::fql_compiler::parser::{Statement, BuildStatement, DeleteStatement, SelectStatement, UpdateStatement, Parser, Object, FqlOutCome};
-use std::{collections::HashMap, io::Write, net::TcpStream};
-
+use ort::session;
+use crate::{detection::{self, Detection}, fql_compiler::{lexer::TokenType, parser::{BinaryOperation, Expression, FqlOutCome, Object, Parser, SelectStatement, StatementEnum, UrlSrc}}, image_src};
+use std::{collections::HashMap, io::Write, net::TcpStream, time::Duration};
+use crate::{video_src::{VideoSrc, FrameIter}, frame::{Frame}};
 
 pub struct Executor<'a>{
   parser: Parser<'a>,
   writer: &'a mut TcpStream,
+}
+
+enum FqlOutputType {
+    SNAPSHOTS,
+    DETECTIONS,
+    FRAMES,
+}
+
+pub struct FqlOutput{
+    fql_out_type: FqlOutputType,
+    range: (Duration, Duration),
+    pub finds: Expression,
+}
+
+enum EvaluationValue{
+    Boolean(bool),
+    Integer(u64),
+    String(String),
+    Null,
 }
 
 impl <'a> Executor<'a>{
@@ -55,56 +75,197 @@ impl <'a> Executor<'a>{
     }
 }
 
-
-
-impl Statement for DeleteStatement{
-    fn execute(&self)->Option<String> {
-        todo!()
+pub trait Statement{
+    fn execute(&self)->Option<FqlOutCome>{
+       println!("executing statement");
+       None
     }
 }
 
-impl Statement for UpdateStatement{
-    fn execute(&self)->Option<String> {
-        todo!()
-    }
-}
-
-impl Statement for BuildStatement{
-    fn execute(&self)->Option<FqlOutCome> {
-        todo!()
+impl Statement for StatementEnum{
+    fn execute(&self)->Option<FqlOutCome>{
+        match self{
+            StatementEnum::SelectStatement(stmt) => stmt.execute(),
+        }
     }
 }
 
 impl Statement for SelectStatement{
     fn execute(&self) -> Option<FqlOutCome>{
-       let (frms_iter, session) = VideoSrc::open(&self.url, &self.preference); 
-//chunk_time ???
-       
-       let table: HashMap<usize, Option<Duration>> = HashMap::new();
-       match self.object{
-           Object::Image(img_url) =>{
-               //find where this image occurs in the video 
-               let d_img = image::open(img_url).expect("error opening image");
-               let my_image = Frame::from_image(d_img);
+        if let Some(url_src) = &self.url{
+            match url_src{
+                UrlSrc::Vid(vid_url) =>{
+                   let (frms_iter, session) = VideoSrc::open(&vid_url, &self.preference); 
 
-               let mut frms_db = FramesDB{source: UrlSrc::Img(img_url), target: None, table};
-               //matching logic
-               
-               println!("FOUND FRAMEID'S: FRAME TIMESTAMP");
-               println!("#?{}",frms_db);
-               return frms_db;
+                   self.execute_frames(frms_iter, session)
+                },
+                UrlSrc::Img(img_url) =>{
+                   let (frm, session) =  image_src::open_image(&img_url);
+
+                   self.execute_frame(frm, session)
+                },
+            }
+        }else{
+            return None
+        }
+    }
+}
+
+impl SelectStatement{
+    fn execute_frame(&self, frame: Frame, mut session: session::Session)->Option<FqlOutCome>{
+        let fql_out_type = match self.target{
+            Object::ObjectImages => FqlOutputType::SNAPSHOTS,
+            Object::Detections => FqlOutputType::DETECTIONS,
+            _=> FqlOutputType::FRAMES,
+        };
+
+        let range = self.timeline?;
+        let finds = self.expr?;
+        
+        let fql_out = FqlOutput{
+            fql_out_type,
+            range,
+            finds,
+        };
+
+        let results = frame.process_frame(&mut session, true, fql_out);
+        results
+    }
+
+    fn execute_frames(&self, frms_iter: FrameIter, session: session::Session)->Option<FqlOutCome>{
+       match frms_iter{
+            FrameIter::Ocv(ocvs) =>{
+                let out:Vec<> = Vec::new();
+                for frm in ocvs{
+                    out.push(self.execute_frame(frm, session));
+                }
+
+                out
+            },
+            FrameIter::Ffm(ffms)=>{
+                let out:Vec<> = Vec::new();
+                for frm in ffms{
+                    out.push(self.execute_frame(frm, session));
+                }
+
+                out
+            },
+       }
+    }
+
+    fn evaluate(expr: Expression, detection: Detection)->EvaluationValue{
+       match expr{
+           Expression::Binary { left, op, right } =>{
+              let left_res = Self::evaluate(*left, detection);
+              let right_res = Self::evaluate(*right, detection);
+
+              match op{
+                  BinaryOperation::And =>{
+                      match(left_res, right_res){
+                          (EvaluationValue::Boolean(a), EvaluationValue::Boolean(b)) =>{
+                              EvaluationValue::Boolean(a & b)
+                          },
+                          _=>EvaluationValue::Null,
+                      }
+                  },
+                  BinaryOperation::Not =>{ 
+                      match(left_res, right_res){
+                      (EvaluationValue::Boolean(a), EvaluationValue::Boolean(b)) =>{
+                          //
+                          },
+                          _=>EvaluationValue::Null,
+                      }
+                  },
+                  BinaryOperation::Equal =>{
+                      match(left_res, right_res){
+                          (EvaluationValue::Boolean(a), EvaluationValue::Boolean(b))=>{
+                              EvaluationValue::Boolean(a == b)
+                          },
+                          (EvaluationValue::String(a), EvaluationValue::String(b))=>{
+                              let parser = Parser::empty();
+                              let k = parser.get_keyword(&a);
+
+                              match k{
+                                  TokenType::Range =>{
+                                     let (start, end) = Self::parse_timeline_string(&b);
+                                     if let Some(t) = detection.timestamp{
+                                        if t >= start && t <= end{
+                                            EvaluationValue::Boolean(true)
+                                        }else{
+                                            EvaluationValue::Boolean(false)
+                                        }
+                                     }else{
+                                         EvaluationValue::Null
+                                     }
+                                  },
+                                  TokenType::Object =>{
+                                     let img_ob = image_src::open_image(&b); 
+                                     let match_percentage = Self::cmp_frame_and_detection(&img_ob, &detection);
+                                     if match_percentage > 0.5{
+                                         EvaluationValue::Boolean(true)
+                                     }else{
+                                         EvaluationValue::Boolean(false)
+                                     }
+                                  },
+                                  TokenType::ClassName =>{
+                                     let classid = Self::lookup_classid(&b);
+                                     if detection.class_id == classid{
+                                         EvaluationValue::Boolean(true)
+                                     }else{
+                                         EvaluationValue::Boolean(false)
+                                     }
+                                  },
+                                  _=>EvaluationValue::Null
+                              }
+                          },
+                          (EvaluationValue::Integer(a), EvaluationValue::Integer(b))=>{
+                              EvaluationValue::Boolean(a == b)
+                          },
+                          _=>EvaluationValue::Null
+                      }
+                  },
+                  BinaryOperation::Or =>{
+                      match (left_res, right_res){
+                          (EvaluationValue::Boolean(a), EvaluationValue::Boolean(b))=>{
+                              EvaluationValue::Boolean(a || b)
+                          },
+                          _=>{
+                              EvaluationValue::Null
+                          }
+                      }
+                  },
+              }
            },
-           Object::Frame =>{
-               let mut frms_db = FramesDB{source: UrlSrc::Vid(self.url), table, target: None};
-               for frm in frms_iter{
-                   frms_db.table.insert(frm.frm_no, frm.timestamp);
-               }
-
-
-               println!("FOUND FRAMEID'S: FRAME TIMESTAMP");
-               println!("#?{}",frms_db);
-               return frms_db;
+           Expression::Identifier(ident) =>{
+              EvaluationValue::String(ident)
+           },
+           Expression::NumberLiteral(num)=>{
+              let n: u64 = num.parse().expect("Unable to convert string into Integer i.e u64 from expressions number literal"); 
+              EvaluationValue::Integer(n)
+           },
+           Expression::StringLiteral(val)=>{
+              EvaluationValue::String(val)
            },
        }
+    }
+
+    pub fn cmp_frame_and_detection(frame: &Frame, det: &Detection)->f32{
+
+       let dets = frame.process_frame_raw(session);
+       let threshold_count =0.0;
+       for det2 in dets{
+         if Detection::cmp_detections(det2, det){
+
+         }
+       }
+    
+    }
+
+    pub fn lookup_classid(classname: &String)->usize{
+
+    }
+
+    fn parse_timeline_string(timeline: &String)->(Duration, Duration){
+
     }
 }

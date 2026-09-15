@@ -1,6 +1,5 @@
-use crate::video_src::VideoSrc;
-use crate::{Location, frame::Frame, video_src::ApiPref};
-use crate::image_src::process_image;
+use crate::{Location, frame::Frame, video_src::{ApiPref, VideoSrc}};
+use crate::image_src::{open_image};
 
 
 type SrcFrame = Frame;
@@ -35,7 +34,7 @@ impl Intent<'_>{
          QueryType::Video(vid) =>{
              match vid{
                 Some(location) =>{
-                   VideoSrc::open_and_process_video(location, ApiPref::OCV);
+                   VideoSrc::open(location, &ApiPref::OCV);
                 },
                 None =>{
                    println!("No video found in query")
@@ -45,7 +44,7 @@ impl Intent<'_>{
          QueryType::Image(img)=>{
              match img{
                  Some(location) =>{
-                    process_image(location);
+                    open_image(location);
                  },
                  None =>{
                     println!("No image found in query")

@@ -10,7 +10,7 @@ pub mod letterbox;
 pub mod model_session;
 pub mod tracker;
 
-use std::{io::{BufReader, BufRead,Write}, net::{TcpListener, TcpStream}, thread};
+use std::{io::{BufReader, BufRead, Write}, net::{TcpListener, TcpStream}, thread};
 use crate::{fql_compiler::executor::Executor};
 
 type FQL = String;
@@ -45,11 +45,19 @@ fn handle_conn(stream: TcpStream){
    
    let mut executor = Executor::new(&mut writer);
 
+   let mut head_starter = match stream.try_clone(){
+       Ok(s) => s,
+       Err(e) => {
+           eprint!("Error creating head_starter clone from stream. Error: {}", e);
+           return;
+       },
+   };
+
    let mut reader = BufReader::new(stream);
 
    let mut input_line = String::new();
-   //let head_start = b"(fql)> ";
-   //let _ = writer.write_all(head_start);
+   let head_start = b"(fql)> ";
+   let _ = head_starter.write_all(head_start);
    while let Ok(bytes_read) = reader.read_line(&mut input_line){
       if bytes_read == 0{
           println!("User exited early");
@@ -64,6 +72,8 @@ fn handle_conn(stream: TcpStream){
       }
       let _fql_outcome = executor.execute(fql_query.to_string());
 
+
+       let _ = head_starter.write_all(head_start);
       }
 }
 

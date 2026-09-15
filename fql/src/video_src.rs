@@ -24,7 +24,7 @@ impl Iterator for VideoSrc{
     }
 }
 
-enum FrameIter{
+pub enum FrameIter{
     Ocv(OpenCvFrame),
     Ffm(FfmFrame),
 }

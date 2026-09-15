@@ -1,5 +1,5 @@
-use std::{collections::{HashSet}, time::Duration};
-use crate::letterbox::{LetterBoxedFrame, LetterBoxInfo};
+use std::{time::Duration};
+use crate::{fql_compiler::{executor::{Executor, FqlOutput}, parser::FqlOutCome}, letterbox::{LetterBoxInfo, LetterBoxedFrame}};
 use ffmpeg_next::{self as ffmpeg, format::Pixel, software::scaling::{flag::Flags, context::Context}};
 use image::{DynamicImage, RgbImage};
 use opencv::{self, core::{Mat, MatTraitConst, MatTraitConstManual}, imgproc};
@@ -122,7 +122,7 @@ impl Frame{
        }
     }
 
-    pub fn process_frame(&self, session: &mut Session, use_yolo26:bool, selections: &HashSet<usize>){
+    pub fn process_frame(&self, session: &mut Session, use_yolo26:bool, fql_out: FqlOutput) ->Option<FqlOutCome>{
         let letterboxed = self.letterbox(640);
         let tensor = letterboxed.to_tensor();
 
@@ -141,7 +141,7 @@ impl Frame{
         let output = output.index_axis(ndarray::Axis(0), 0);
         //println!("Output2's shape: {:?}", output.shape());
 
-        let mut saved_detections = Vec::new();
+        let mut results = Vec::new();
         if use_yolo26{
             //println!("Using yolo26n..");
             for pred in output.axis_iter(ndarray::Axis(0)) {
@@ -158,11 +158,6 @@ impl Frame{
 
                 let class_id = pred[5] as usize;
                 
-                //returning
-                if !selections.is_empty() && !selections.contains(&class_id){
-                   continue;
-                }
-
                 let (x1, y1, x2, y2) = letterboxed.info.to_original(
                         x1,
                         y1,
@@ -181,7 +176,9 @@ impl Frame{
                      timestamp: self.timestamp,
                 };
 
-                detect(detection, &mut saved_detections);
+                //evaluate
+                let result = Executor::evaluate(fql_out.finds, detection);
+                results.push(result);
             }
         }else{
             println!("Using yolo11n..");
@@ -239,7 +236,7 @@ impl Frame{
                     timestamp: self.timestamp,
                 };
 
-                detect(detection, &mut saved_detections)
+               detect(detection, &mut saved_detections)
             }
             println!("DETECTIONS FOUND:\n {:#?}", saved_detections);
         }
@@ -259,7 +256,74 @@ impl Frame{
             });
         }
         println!("DETECTIONS FOUND:\n {:#?}", final_dets);
+
+        for f_detection in final_dets{
+            let result = Executor::evaluate(fql_out.finds, f_detection);
+            results.push(result);
+        }
+
+        results
     }
+
+    pub fn process_frame_raw(&self, session: &mut Session) -> Vec<Detection>{
+        let letterboxed = self.letterbox(640);
+        let tensor = letterboxed.to_tensor();
+
+        let binding = tensor.expect("failed to successfully get tensor.view()");
+        let input = TensorRef::from_array_view(binding.view()).expect("Failed to create TensorRef");
+
+        let outputs = session.run(ort::inputs![input]).unwrap();
+
+        let output = outputs[0].try_extract_array::<f32>().expect("Failure to get output by extractin array at outputs[0] index 0");
+
+        //println!("output shape: {:?}", output);
+
+        let num_predictions = output.shape()[1];
+        println!("predictions: {}", num_predictions);
+
+        let output = output.index_axis(ndarray::Axis(0), 0);
+        //println!("Output2's shape: {:?}", output.shape());
+
+        let mut dets: Vec<Detection> = Vec::new();
+        for pred in output.axis_iter(ndarray::Axis(0)) {
+            let score = pred[4];
+            if score < 0.5 {
+                continue;
+            }
+
+            println!("CURRENT pred: {}", pred);
+            let x1 = pred[0];
+            let y1 = pred[1];
+            let x2 = pred[2];
+            let y2 = pred[3];
+
+            let class_id = pred[5] as usize;
+            
+            let (x1, y1, x2, y2) = letterboxed.info.to_original(
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                );
+
+            let detection = Detection {
+                 class_id,
+                 score,
+                 x1,
+                 y1,
+                 x2,
+                 y2,
+                 frm_no: self.frm_no,
+                 timestamp: self.timestamp,
+            };
+
+            //evaluate
+            dets.push(detection);
+        }
+
+        dets
+    }
+     
 
     pub fn to_tensor(&self)->Result<Array4<f32>, ndarray::ShapeError>{
        let (width, height) = (self.width, self.height);

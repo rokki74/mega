@@ -1,18 +1,17 @@
-use std::collections::HashSet;
-
+use ort::session;
 use crate::{frame::Frame, model_session};
 
 pub fn open(location: &String)->image::DynamicImage{
     image::open(location).unwrap()
 }
 
-pub fn process_image(location: &String){
+pub fn open_image(location: &String)->(Frame, session::Session){
     let img = image::open(location).unwrap();
     let frame = Frame::from_image(img);
 
-    let mut session = model_session::init_yolo_sesion(true);
-    let selections = HashSet::new();
-    frame.process_frame(&mut session, true, &selections);
+    let session = model_session::init_yolo_sesion(true);
+
+    (frame, session)
 }
 
 

@@ -1,39 +1,39 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum TokenType{
     Illegal,
     Number,
     Select,
-    Delete,
-    Update, 
-    Insert,
-    Snapshot,
     FrameId,
     ClassId,
     ClassName,
     From,
     Where,
-    Set,
-    Into,
-    Before,
-    After,
     And,
     Or,
     ObjectImage,
+    Object,
     Video,
     Range,
-    Build,
     Semicolon,
     String,
     Star,
     EQ,
     Comma,
+    Frames,
+    ObjectImages,
+    Detections,
     EOF,
 }
 
+impl Display for TokenType{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}",self)
+    }
+}
 
-
+#[derive(Clone)]
 pub struct Token{
     pub token_type: TokenType,
     pub value: String,
