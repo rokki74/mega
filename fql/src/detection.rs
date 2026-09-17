@@ -1,4 +1,6 @@
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
+
+use crate::fql_compiler::parser::FqlOutCome;
 
 #[derive(Debug, Clone)]
 pub struct Detection{
@@ -95,7 +97,7 @@ const COCO_CLASSES: [&str; 80] = [
     "toothbrush",
 ];
 
-pub fn detect(d: Detection, saved_detections: &mut Vec<Detection>){
+pub fn detect_show(d: &Detection){
        println!("{} {:.2} ({}, {}, {}, {})",
        COCO_CLASSES[d.class_id],
        d.score,
@@ -127,8 +129,20 @@ pub fn detect(d: Detection, saved_detections: &mut Vec<Detection>){
        }
 }
 
-pub fn detect_all(detections: &Vec<Detection>){
+pub fn detect_all_show(detections: &Vec<Detection>){
    for d in detections{
+      detect_show(&d); 
+   }
+}
+
+enum OutCome{
+    NULL,
+    Res(String),
+}
+
+#[inline]
+fn detect(d: &Detection)->OutCome{
+       let res_string = String::new();
        println!("{} {:.2} ({}, {}, {}, {})",
        COCO_CLASSES[d.class_id],
        d.score,
@@ -143,10 +157,12 @@ pub fn detect_all(detections: &Vec<Detection>){
        match d.timestamp{
            Some(timestamp) =>{
               match d.class_id{     
-                   0 => println!("PERSON detected on timestamp: {:#?} for frame number: {}", timestamp, frm_no),
+                   0 => let f_out = format!("PERSON detected on timestamp: {:#?} for frame number: {}", timestamp, frm_no),
                    2 |3 | 5| 7 =>println!("VEHICLE detected on timestamp: {:#?} for frame number: {}", timestamp, frm_no),
                    16..=21 =>println!("ANIMAL detected on timestamp: {:#?} for frame number: {}", timestamp, frm_no),
-                   _=>{}
+                   _=>{
+                       return OutCome::NULL
+                   }
                }
            },
            None =>{
@@ -154,11 +170,30 @@ pub fn detect_all(detections: &Vec<Detection>){
                    0 => println!("PERSON detected on timestamp: {:#?} for frame number: {}", "No Available timestamp", frm_no),
                    2 |3 | 5| 7 =>println!("VEHICLE detected on timestamp: {:#?} for frame number: {}", "No Available timestamp", frm_no),
                    16..=21 =>println!("ANIMAL detected on timestamp: {:#?} for frame number: {}", "No Available timestamp", frm_no),
-                   _=>{}
+                   _=>{
+                       return OutCome::NULL;
+                   }
               }
            }
        }
-   }
+
+       OutCome::Res(res_string)
+}
+
+pub fn detect_back(results: Vec<Detection>)->Option<FqlOutCome>{
+    let mut out: Vec<String> = Vec::new();
+    for res in results{
+        let dete = detect(&res);
+        if let OutCome::Res(r) = dete{
+           out.push(r) 
+        }
+    }
+
+    if out.is_empty(){
+        return None;
+    }
+    
+    Some(FqlOutCome::Multiple(out))
 }
 
 pub fn iou(det: &Detection, other: Detection) ->f32{
@@ -191,4 +226,28 @@ pub fn iou(det: &Detection, other: Detection) ->f32{
 
    let union = area_d + area_o - intersection;
    intersection/union
+}
+
+impl Detection{
+    pub fn match_detections(det1: &Detection, det2: &Detection)->bool{
+       if det1.class_id == det2.class_id{
+           return true;
+       }
+
+       false
+    }
+
+    pub fn lookup_classname(classid: usize)->String{
+        COCO_CLASSES[classid].to_string()
+    }
+
+    pub fn fill_coco_classes_map()->HashMap<String, usize>{
+        let coco: HashMap<String, usize> = HashMap::new();
+
+        for datum, i in COCO_CLASSES.into_iter().enumerate(){
+            coco.insert(datum.to_string(), i);
+        }
+
+        coco
+    }
 }

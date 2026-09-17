@@ -122,7 +122,7 @@ impl Frame{
        }
     }
 
-    pub fn process_frame(&self, session: &mut Session, use_yolo26:bool, fql_out: FqlOutput) ->Option<FqlOutCome>{
+    pub fn process_frame(&self, session: &mut Session, use_yolo26:bool, fql_out: FqlOutput) ->FqlOutCome{
         let letterboxed = self.letterbox(640);
         let tensor = letterboxed.to_tensor();
 
@@ -141,7 +141,8 @@ impl Frame{
         let output = output.index_axis(ndarray::Axis(0), 0);
         //println!("Output2's shape: {:?}", output.shape());
 
-        let mut results = Vec::new();
+        let mut results: Vec<Detection> = Vec::new();
+        let mut saved_detections: Vec<Detection> = Vec::new();
         if use_yolo26{
             //println!("Using yolo26n..");
             for pred in output.axis_iter(ndarray::Axis(0)) {
@@ -177,8 +178,10 @@ impl Frame{
                 };
 
                 //evaluate
-                let result = Executor::evaluate(fql_out.finds, detection);
-                results.push(result);
+                let eval = Executor::evaluate(fql_out.finds, detection);
+                if eval{
+                   results.push(detection);
+                }
             }
         }else{
             println!("Using yolo11n..");
@@ -257,12 +260,15 @@ impl Frame{
         }
         println!("DETECTIONS FOUND:\n {:#?}", final_dets);
 
-        for f_detection in final_dets{
-            let result = Executor::evaluate(fql_out.finds, f_detection);
-            results.push(result);
+        for f_det in final_dets{
+            let eval = Executor::evaluate(fql_out.finds, f_det);
+            if eval{
+               results.push(f-det);
+            }
         }
 
-        results
+        let outcome = detect_back(results);
+        outcome
     }
 
     pub fn process_frame_raw(&self, session: &mut Session) -> Vec<Detection>{

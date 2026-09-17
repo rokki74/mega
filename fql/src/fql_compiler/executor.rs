@@ -1,5 +1,5 @@
 use ort::session;
-use crate::{detection::{self, Detection}, fql_compiler::{lexer::TokenType, parser::{BinaryOperation, Expression, FqlOutCome, Object, Parser, SelectStatement, StatementEnum, UrlSrc}}, image_src};
+use crate::{detection::Detection, fql_compiler::{lexer::TokenType, parser::{BinaryOperation, Expression, FqlOutCome, Object, Parser, SelectStatement, StatementEnum, UrlSrc}}, image_src, model_session};
 use std::{collections::HashMap, io::Write, net::TcpStream, time::Duration};
 use crate::{video_src::{VideoSrc, FrameIter}, frame::{Frame}};
 
@@ -30,7 +30,6 @@ enum EvaluationValue{
 impl <'a> Executor<'a>{
     pub fn new(writer: &'a mut TcpStream)->Executor<'a>{
         let _ = writer.write_all(b"__Welcome to FQL__");
-         
         Self{
          parser: Parser::empty(),
          writer,
@@ -50,6 +49,10 @@ impl <'a> Executor<'a>{
                self.writer.write_all(b"Displaying 0 results");
                self.writer.flush();
            }
+       }
+
+       pub fn evaluate(expr: Expression, detection: Detection)->EvaluationValue{
+           SelectStatement::evaluate(expr, detection)
        }
     }
 
@@ -135,7 +138,7 @@ impl SelectStatement{
     fn execute_frames(&self, frms_iter: FrameIter, session: session::Session)->Option<FqlOutCome>{
        match frms_iter{
             FrameIter::Ocv(ocvs) =>{
-                let out:Vec<> = Vec::new();
+                let out:Vec<_> = Vec::new();
                 for frm in ocvs{
                     out.push(self.execute_frame(frm, session));
                 }
@@ -143,7 +146,7 @@ impl SelectStatement{
                 out
             },
             FrameIter::Ffm(ffms)=>{
-                let out:Vec<> = Vec::new();
+                let out:Vec<_> = Vec::new();
                 for frm in ffms{
                     out.push(self.execute_frame(frm, session));
                 }
@@ -153,7 +156,8 @@ impl SelectStatement{
        }
     }
 
-    fn evaluate(expr: Expression, detection: Detection)->EvaluationValue{
+    pub fn evaluate(expr: Expression, detection: Detection)->EvaluationValue{
+       let coco = Detection::fill_coco_classes_map();
        match expr{
            Expression::Binary { left, op, right } =>{
               let left_res = Self::evaluate(*left, detection);
@@ -169,9 +173,9 @@ impl SelectStatement{
                       }
                   },
                   BinaryOperation::Not =>{ 
-                      match(left_res, right_res){
-                      (EvaluationValue::Boolean(a), EvaluationValue::Boolean(b)) =>{
-                          //
+                      match right_res{
+                          EvaluationValue::Boolean(a) =>{
+                            EvaluationValue::Boolean(!a)
                           },
                           _=>EvaluationValue::Null,
                       }
@@ -208,8 +212,13 @@ impl SelectStatement{
                                      }
                                   },
                                   TokenType::ClassName =>{
-                                     let classid = Self::lookup_classid(&b);
-                                     if detection.class_id == classid{
+                                     let classid = if let Some(id) = coco.get(&b){
+                                                      id
+                                                   }else{
+                                                      panic!("No such classname for fql detections");
+                                                   };
+
+                                     if detection.class_id == *classid{
                                          EvaluationValue::Boolean(true)
                                      }else{
                                          EvaluationValue::Boolean(false)
@@ -250,19 +259,17 @@ impl SelectStatement{
     }
 
     pub fn cmp_frame_and_detection(frame: &Frame, det: &Detection)->f32{
-
-       let dets = frame.process_frame_raw(session);
-       let threshold_count =0.0;
+       let mut session = model_session::init_yolo_sesion(true);
+       let dets = frame.process_frame_raw(&mut session);
+       let mut threshold_dets =0;
+       let total_dets = dets.len();
        for det2 in dets{
-         if Detection::cmp_detections(det2, det){
-
+         if Detection::match_detections(det, &det2){
+            threshold_dets += 1;
          }
        }
-    
-    }
-
-    pub fn lookup_classid(classname: &String)->usize{
-
+       
+       ((threshold_dets/total_dets) * 100) as f32
     }
 
     fn parse_timeline_string(timeline: &String)->(Duration, Duration){
