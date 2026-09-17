@@ -1,6 +1,6 @@
 use ort::session;
 use crate::{detection::Detection, fql_compiler::{lexer::TokenType, parser::{BinaryOperation, Expression, FqlOutCome, Object, Parser, SelectStatement, StatementEnum, UrlSrc}}, image_src, model_session};
-use std::{collections::HashMap, io::Write, net::TcpStream, time::Duration};
+use std::{io::Write, net::TcpStream, time::Duration};
 use crate::{video_src::{VideoSrc, FrameIter}, frame::{Frame}};
 
 pub struct Executor<'a>{
@@ -20,7 +20,7 @@ pub struct FqlOutput{
     pub finds: Expression,
 }
 
-enum EvaluationValue{
+pub enum EvaluationValue{
     Boolean(bool),
     Integer(u64),
     String(String),
@@ -50,10 +50,10 @@ impl <'a> Executor<'a>{
                self.writer.flush();
            }
        }
+    }
 
-       pub fn evaluate(expr: Expression, detection: Detection)->EvaluationValue{
+    pub fn evaluate(expr: Expression, detection: &Detection)->EvaluationValue{
            SelectStatement::evaluate(expr, detection)
-       }
     }
 
     pub fn send_back_result(&mut self, outcome: FqlOutCome){
@@ -73,20 +73,24 @@ impl <'a> Executor<'a>{
                     let _ = self.writer.write_all(&outcm_bytes);
                     let _ = self.writer.flush();
                 }
+            },
+            FqlOutCome::NULL =>{
+                let _ = self.writer.write_all(b"No results, execution complete");
+                 let _ = self.writer.flush();
             }
         }
     }
 }
 
 pub trait Statement{
-    fn execute(&self)->Option<FqlOutCome>{
+    fn execute(&self)->Vec<FqlOutCome>{
        println!("executing statement");
-       None
+       vec![FqlOutCome::NULL]
     }
 }
 
 impl Statement for StatementEnum{
-    fn execute(&self)->Option<FqlOutCome>{
+    fn execute(&self)->Vec<FqlOutCome>{
         match self{
             StatementEnum::SelectStatement(stmt) => stmt.execute(),
         }
@@ -94,28 +98,31 @@ impl Statement for StatementEnum{
 }
 
 impl Statement for SelectStatement{
-    fn execute(&self) -> Option<FqlOutCome>{
+    fn execute(&self) -> Vec<FqlOutCome>{
         if let Some(url_src) = &self.url{
             match url_src{
                 UrlSrc::Vid(vid_url) =>{
-                   let (frms_iter, session) = VideoSrc::open(&vid_url, &self.preference); 
+                   let (frms_iter, mut session) = VideoSrc::open(&vid_url, &self.preference); 
 
-                   self.execute_frames(frms_iter, session)
+                   self.execute_frames(frms_iter, &mut session)
                 },
                 UrlSrc::Img(img_url) =>{
-                   let (frm, session) =  image_src::open_image(&img_url);
-
-                   self.execute_frame(frm, session)
+                   let (frm, mut session) =  image_src::open_image(&img_url);
+                   if let Some(f) = self.execute_frame(frm, &mut session){
+                      vec![f]
+                   }else{
+                       vec![FqlOutCome::NULL]
+                   }
                 },
             }
         }else{
-            return None
+           vec![FqlOutCome::NULL]
         }
     }
 }
 
 impl SelectStatement{
-    fn execute_frame(&self, frame: Frame, mut session: session::Session)->Option<FqlOutCome>{
+    fn execute_frame(&self, frame: Frame, session: &mut session::Session)->Option<FqlOutCome>{
         let fql_out_type = match self.target{
             Object::ObjectImages => FqlOutputType::SNAPSHOTS,
             Object::Detections => FqlOutputType::DETECTIONS,
@@ -123,7 +130,7 @@ impl SelectStatement{
         };
 
         let range = self.timeline?;
-        let finds = self.expr?;
+        let finds = self.expr.clone()?;
         
         let fql_out = FqlOutput{
             fql_out_type,
@@ -131,24 +138,31 @@ impl SelectStatement{
             finds,
         };
 
-        let results = frame.process_frame(&mut session, true, fql_out);
-        results
+        let results = frame.process_frame(session, true, fql_out);
+        Some(results)
     }
 
-    fn execute_frames(&self, frms_iter: FrameIter, session: session::Session)->Option<FqlOutCome>{
+    fn execute_frames(&self, frms_iter: FrameIter, session: &mut session::Session)->Vec<FqlOutCome>{
+       let mut out: Vec<FqlOutCome> = Vec::new();
        match frms_iter{
             FrameIter::Ocv(ocvs) =>{
-                let out:Vec<_> = Vec::new();
                 for frm in ocvs{
-                    out.push(self.execute_frame(frm, session));
+                    if let Some(f_out) = self.execute_frame(frm, session){
+                        out.push(f_out);
+                    }else{
+                        out.push(FqlOutCome::NULL);
+                    }
                 }
 
                 out
             },
             FrameIter::Ffm(ffms)=>{
-                let out:Vec<_> = Vec::new();
                 for frm in ffms{
-                    out.push(self.execute_frame(frm, session));
+                    if let Some(f_out) = self.execute_frame(frm, session){
+                        out.push(f_out);
+                    }else{
+                        out.push(FqlOutCome::NULL);
+                    }
                 }
 
                 out
@@ -156,7 +170,7 @@ impl SelectStatement{
        }
     }
 
-    pub fn evaluate(expr: Expression, detection: Detection)->EvaluationValue{
+    pub fn evaluate(expr: Expression, detection: &Detection)->EvaluationValue{
        let coco = Detection::fill_coco_classes_map();
        match expr{
            Expression::Binary { left, op, right } =>{
@@ -203,7 +217,7 @@ impl SelectStatement{
                                      }
                                   },
                                   TokenType::Object =>{
-                                     let img_ob = image_src::open_image(&b); 
+                                     let (img_ob, _) = image_src::open_image(&b); 
                                      let match_percentage = Self::cmp_frame_and_detection(&img_ob, &detection);
                                      if match_percentage > 0.5{
                                          EvaluationValue::Boolean(true)
@@ -273,6 +287,11 @@ impl SelectStatement{
     }
 
     fn parse_timeline_string(timeline: &String)->(Duration, Duration){
+       let parts = timeline.split_whitespace();
+       
+       let start = parts[0];
+       let end = parts[1];
 
+       (Duration::from(start), Duration::from(end))
     }
 }

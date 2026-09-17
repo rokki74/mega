@@ -157,19 +157,31 @@ fn detect(d: &Detection)->OutCome{
        match d.timestamp{
            Some(timestamp) =>{
               match d.class_id{     
-                   0 => let f_out = format!("PERSON detected on timestamp: {:#?} for frame number: {}", timestamp, frm_no),
-                   2 |3 | 5| 7 =>println!("VEHICLE detected on timestamp: {:#?} for frame number: {}", timestamp, frm_no),
-                   16..=21 =>println!("ANIMAL detected on timestamp: {:#?} for frame number: {}", timestamp, frm_no),
+                   0 => {
+                       let f = format!("PERSON detected on timestamp: {:#?} for frame number: {}", timestamp, frm_no);
+                       return OutCome::Res(f);
+                   },
+                   2 |3 | 5| 7 =>{
+                       let f = format!("VEHICLE detected on timestamp: {:#?} for frame number: {}", timestamp, frm_no);
+                       return OutCome::Res(f);
+                    },
+                   16..=21 =>{ let f = format!("ANIMAL detected on timestamp: {:#?} for frame number: {}", timestamp, frm_no);
+                       return OutCome::Res(f);
+                   },
                    _=>{
-                       return OutCome::NULL
+                       return OutCome::NULL;
                    }
                }
            },
            None =>{
               match d.class_id{
-                   0 => println!("PERSON detected on timestamp: {:#?} for frame number: {}", "No Available timestamp", frm_no),
+                   0 => { let f = format!("PERSON detected on timestamp: {:#?} for frame number: {}", "No Available timestamp", frm_no);
+                      return OutCome::Res(f);
+                   },
                    2 |3 | 5| 7 =>println!("VEHICLE detected on timestamp: {:#?} for frame number: {}", "No Available timestamp", frm_no),
-                   16..=21 =>println!("ANIMAL detected on timestamp: {:#?} for frame number: {}", "No Available timestamp", frm_no),
+                   16..=21 =>{ let f = format!("ANIMAL detected on timestamp: {:#?} for frame number: {}", "No Available timestamp", frm_no);
+                     return OutCome::Res(f);
+                   },
                    _=>{
                        return OutCome::NULL;
                    }
@@ -244,7 +256,7 @@ impl Detection{
     pub fn fill_coco_classes_map()->HashMap<String, usize>{
         let coco: HashMap<String, usize> = HashMap::new();
 
-        for datum, i in COCO_CLASSES.into_iter().enumerate(){
+        for (datum, i) in COCO_CLASSES.into_iter().enumerate(){
             coco.insert(datum.to_string(), i);
         }
 

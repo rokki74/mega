@@ -1,11 +1,11 @@
 use std::{time::Duration};
-use crate::{fql_compiler::{executor::{Executor, FqlOutput}, parser::FqlOutCome}, letterbox::{LetterBoxInfo, LetterBoxedFrame}};
+use crate::{fql_compiler::{executor::{Executor, FqlOutput, ExpressionValue}, parser::FqlOutCome}, letterbox::{LetterBoxInfo, LetterBoxedFrame}};
 use ffmpeg_next::{self as ffmpeg, format::Pixel, software::scaling::{flag::Flags, context::Context}};
 use image::{DynamicImage, RgbImage};
 use opencv::{self, core::{Mat, MatTraitConst, MatTraitConstManual}, imgproc};
 use ort::{value::TensorRef, session::Session};
 use ndarray::Array4;
-use crate::{detection::{Detection, iou, detect}};
+use crate::{detection::{Detection, iou, detect_back}};
 
 
 #[derive(Debug, Clone)]
@@ -178,9 +178,11 @@ impl Frame{
                 };
 
                 //evaluate
-                let eval = Executor::evaluate(fql_out.finds, detection);
-                if eval{
-                   results.push(detection);
+                let eval = Executor::evaluate(fql_out.finds, &detection);
+                if let ExpressionValue::Boolean(v) = eval{
+                   if v {
+                       results.push(detection);
+                   }
                 }
             }
         }else{
@@ -239,7 +241,7 @@ impl Frame{
                     timestamp: self.timestamp,
                 };
 
-               detect(detection, &mut saved_detections)
+               detect_y11(detection, &mut saved_detections)
             }
             println!("DETECTIONS FOUND:\n {:#?}", saved_detections);
         }
@@ -263,12 +265,16 @@ impl Frame{
         for f_det in final_dets{
             let eval = Executor::evaluate(fql_out.finds, f_det);
             if eval{
-               results.push(f-det);
+               results.push(f_det);
             }
         }
 
         let outcome = detect_back(results);
-        outcome
+        if let Some(fout) = outcome{
+            fout
+        }else{
+            FqlOutCome::NULL
+        }
     }
 
     pub fn process_frame_raw(&self, session: &mut Session) -> Vec<Detection>{

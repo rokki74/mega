@@ -16,10 +16,12 @@ pub enum Object {
 }
 
 pub enum FqlOutCome{
+    NULL,
     Single(String),
     Multiple(Vec<String>),
 }
 
+#[derive(Clone)]
 pub enum BinaryOperation{
    Equal,
    And, 
@@ -38,6 +40,7 @@ impl BinaryOperation{
     }
 }
 
+#[derive(Clone)]
 pub enum Expression{
     NumberLiteral(String),
     StringLiteral(String),
@@ -283,8 +286,8 @@ impl <'a> Parser<'a>{
      }
 
      fn match_peek(&self, t: TokenType)->bool{
-         match self.peek_token.token_type{
-           t => true,
+         match t{
+           self.peek_token.token_type => {println!("matched a peek token"); true},
            _ => {
                eprintln!("Error occurred:  unexpected {} in the fql statement", t);
          
