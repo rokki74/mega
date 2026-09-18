@@ -254,9 +254,9 @@ impl Detection{
     }
 
     pub fn fill_coco_classes_map()->HashMap<String, usize>{
-        let coco: HashMap<String, usize> = HashMap::new();
+        let mut coco: HashMap<String, usize> = HashMap::new();
 
-        for (datum, i) in COCO_CLASSES.into_iter().enumerate(){
+        for (i, datum) in COCO_CLASSES.into_iter().enumerate(){
             coco.insert(datum.to_string(), i);
         }
 

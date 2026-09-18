@@ -36,18 +36,15 @@ impl <'a> Executor<'a>{
        }
     }
 
-    pub fn execute(&mut self, fql: String){
+    pub fn execute(&mut self, fql: &'a str){
        let queries = fql.split(";");
 
        for query in queries{
-           let stmt = self.parser.parse(query.to_string());
+           let stmt = self.parser.parse(query);
            let fql_outcm = stmt.execute();
 
-           if let Some(outcome) = fql_outcm{
-             self.send_back_result(outcome);
-           }else{
-               self.writer.write_all(b"Displaying 0 results");
-               self.writer.flush();
+           for outcm in fql_outcm{
+              self.send_back_result(outcm);
            }
        }
     }
@@ -287,11 +284,40 @@ impl SelectStatement{
     }
 
     fn parse_timeline_string(timeline: &String)->(Duration, Duration){
-       let parts = timeline.split_whitespace();
+       let mut parts = timeline.split_whitespace();
        
-       let start = parts[0];
-       let end = parts[1];
+       let start = parts.next().expect("Missing start time!");
+       let end = parts.next().expect("Missing end time!");
 
-       (Duration::from(start), Duration::from(end))
+       let start_dur = parse_media_timestamp(start);
+       let end_dur = parse_media_timestamp(end);
+
+       (start_dur, end_dur)
     }
 }
+
+pub fn parse_media_timestamp(timestamp: &str)->Duration{
+        let parts: Vec<&str> = timestamp.split(':').collect();
+
+        let (hours, minutes, seconds) = match parts.len(){
+            2  =>{
+                 let mins: u64 = parts[0].parse().expect("Invalid Minutes");
+                 let secs: u64 = parts[1].parse().expect("Invalid Seconds");
+
+                 (0, mins, secs)
+            },
+            3 =>{
+                let hrs: u64 = parts[0].parse().expect("Invalid Hours");
+                let mins: u64 = parts[1].parse().expect("Invalid Minutes");
+                let secs: u64 = parts[3].parse().expect("Invalid Seconds");
+
+                (hrs, mins, secs)
+            },
+            _=>{
+                panic!("Invalid value for range query, could not parse the range timestamp!");
+            },
+        };
+
+        let dur_secs = (hours *3600) + (minutes *60) + seconds;
+        Duration::from_secs(dur_secs)
+    }

@@ -1,5 +1,5 @@
 use std::{collections::HashMap, time::Duration};
-use crate::{fql_compiler::lexer::{Lexer, Token, TokenType}, video_src::{ApiPref}};
+use crate::{fql_compiler::{executor::{parse_media_timestamp}, lexer::{Lexer, Token, TokenType}}, video_src::ApiPref};
 
 pub struct Parser<'a>{
     keywords: HashMap<&'a str, TokenType>,
@@ -52,6 +52,7 @@ pub enum Expression{
         right: Box<Expression>
     }  
 }
+                       
 
 pub struct SelectStatement{
     pub target: Object,
@@ -133,8 +134,8 @@ impl <'a> Parser<'a>{
        parser
      }
 
-     pub fn parse(&mut self, query: String)->StatementEnum{
-         self.lexer.new(&query);
+     pub fn parse(&mut self, query: &'a str)->StatementEnum{
+         self.lexer.new(query);
          let token = self.lexer.next_token(&self.keywords);
 
          println!("handling the token: token val: {}, token_type: {} Inside the parser", token.value, token.token_type);
@@ -182,7 +183,7 @@ impl <'a> Parser<'a>{
                }
 
                self.lexer.next_token(&self.keywords);
-               stmt.url = Some(UrlSrc::Vid(self.cur_token.value));
+               stmt.url = Some(UrlSrc::Vid(self.cur_token.value.clone()));
 
                while !self.match_peek(TokenType::Semicolon){
                   self.lexer.next_token(&self.keywords);
@@ -191,10 +192,10 @@ impl <'a> Parser<'a>{
                     TokenType::Range =>{
                        self.expect("range");
 
-                       let start = Duration::from(&self.cur_token.value);
+                       let start = parse_media_timestamp(&self.cur_token.value);
 
                        self.expect("string");
-                       let end = Duration::from(&self.cur_token.value);
+                       let end = parse_media_timestamp(&self.cur_token.value);
                        self.expect("string");
 
                        stmt.timeline = Some((start, end));
@@ -219,8 +220,9 @@ impl <'a> Parser<'a>{
                self.lexer.next_token(&self.keywords);
 
                self.expect("=");
-               let url = self.cur_token.value;
-               stmt.target = Object::Detections(UrlSrc::Img(url));
+               let url = self.cur_token.value.clone();
+               stmt.url = Some(UrlSrc::Vid(url));
+               stmt.target = Object::Detections;
            },
            _=>{},
         } 
@@ -286,8 +288,9 @@ impl <'a> Parser<'a>{
      }
 
      fn match_peek(&self, t: TokenType)->bool{
+         const VAL: TokenType = self.peek_token.token_type.clone();
          match t{
-           self.peek_token.token_type => {println!("matched a peek token"); true},
+           VAL => {println!("matched a peek token"); true},
            _ => {
                eprintln!("Error occurred:  unexpected {} in the fql statement", t);
          

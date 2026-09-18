@@ -58,23 +58,25 @@ fn handle_conn(stream: TcpStream){
    let mut input_line = String::new();
    let head_start = b"(fql)> ";
    let _ = head_starter.write_all(head_start);
+   let fql_query = String::new();
    while let Ok(bytes_read) = reader.read_line(&mut input_line){
       if bytes_read == 0{
           println!("User exited early");
           return;
       }
 
-      let fql_query = input_line.trim();
+      fql_query = input_line.trim().to_string();
 
       if fql_query == "exit"{
           println!("Exit..");
           break;
       }
-      let _fql_outcome = executor.execute(fql_query.to_string());
+
+      let _fql_outcome = executor.execute(&fql_query);
 
 
        let _ = head_starter.write_all(head_start);
-      }
+   }
 }
 
 /*

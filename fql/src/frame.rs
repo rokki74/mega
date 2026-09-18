@@ -1,5 +1,5 @@
 use std::{time::Duration};
-use crate::{fql_compiler::{executor::{Executor, FqlOutput, ExpressionValue}, parser::FqlOutCome}, letterbox::{LetterBoxInfo, LetterBoxedFrame}};
+use crate::{fql_compiler::{executor::{Executor, FqlOutput, EvaluationValue}, parser::FqlOutCome}, letterbox::{LetterBoxInfo, LetterBoxedFrame}};
 use ffmpeg_next::{self as ffmpeg, format::Pixel, software::scaling::{flag::Flags, context::Context}};
 use image::{DynamicImage, RgbImage};
 use opencv::{self, core::{Mat, MatTraitConst, MatTraitConstManual}, imgproc};
@@ -179,7 +179,7 @@ impl Frame{
 
                 //evaluate
                 let eval = Executor::evaluate(fql_out.finds, &detection);
-                if let ExpressionValue::Boolean(v) = eval{
+                if let EvaluationValue::Boolean(v) = eval{
                    if v {
                        results.push(detection);
                    }
@@ -263,7 +263,7 @@ impl Frame{
         println!("DETECTIONS FOUND:\n {:#?}", final_dets);
 
         for f_det in final_dets{
-            let eval = Executor::evaluate(fql_out.finds, f_det);
+            let eval = Executor::evaluate(fql_out.finds, &f_det);
             if eval{
                results.push(f_det);
             }
