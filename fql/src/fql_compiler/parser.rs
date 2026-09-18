@@ -1,9 +1,8 @@
 use std::{collections::HashMap, time::Duration};
 use crate::{fql_compiler::{executor::{parse_media_timestamp}, lexer::{Lexer, Token, TokenType}}, video_src::ApiPref};
 
-pub struct Parser<'a>{
-    keywords: HashMap<&'a str, TokenType>,
-    lexer: Lexer<'a>,
+pub struct Parser{
+    lexer: Lexer,
     peek_token: Token,
     cur_token: Token,
 }
@@ -74,10 +73,9 @@ impl SelectStatement{
     }
 }
 
-impl <'a> Parser<'a>{
-   pub fn empty()->Parser<'a>{
+impl Parser{
+   pub fn empty()->Parser{
         Parser{
-            keywords: HashMap::new(),
             lexer: Lexer::empty(),
             peek_token: Token::empty(),
             cur_token: Token::empty(),
@@ -105,38 +103,10 @@ pub enum StatementEnum{
     SelectStatement(SelectStatement)
 }
 
-impl <'a> Parser<'a>{
-     fn new()->Parser<'a>{  
-       let mut keywords: HashMap<&'a str, TokenType> = HashMap::with_capacity(27_usize);
-       
-       keywords.insert("illegal", TokenType::Illegal);
-       keywords.insert("string", TokenType::String);
-       keywords.insert("star", TokenType::Star);
-       keywords.insert("number", TokenType::Number);
-       keywords.insert("semicolon", TokenType::Semicolon);
-       keywords.insert("eq", TokenType::EQ);
-       keywords.insert("eof", TokenType::EOF);
-       keywords.insert("range", TokenType::Range);
-       keywords.insert("objectimage", TokenType::ObjectImage);
-       keywords.insert("frameid", TokenType::FrameId);
-       keywords.insert("and", TokenType::And);
-       keywords.insert("where", TokenType::Where);
-       keywords.insert("classid", TokenType::ClassId);
-       keywords.insert("classname", TokenType::ClassName);
-       keywords.insert("video", TokenType::Video);
-       keywords.insert("select", TokenType::Select);
-       keywords.insert("or", TokenType::Or);
-       keywords.insert("from", TokenType::From);
-
-       let mut parser = Parser::empty();
-       parser.keywords = keywords;
-
-       parser
-     }
-
-     pub fn parse(&mut self, query: &'a str)->StatementEnum{
-         self.lexer.new(query);
-         let token = self.lexer.next_token(&self.keywords);
+impl Parser{
+     pub fn parse(&mut self, query: String)->StatementEnum{
+         self.lexer.new(query.clone());
+         let token = self.lexer.next_token();
 
          println!("handling the token: token val: {}, token_type: {} Inside the parser", token.value, token.token_type);
              
@@ -177,16 +147,16 @@ impl <'a> Parser<'a>{
                    panic!("Incorrect syntax, needed a video instead.");
                }
                
-               self.lexer.next_token(&self.keywords);
+               self.lexer.next_token();
                if !self.match_peek(TokenType::EQ){
                    panic!("Incorrect syntax, needed an equal operation/sign");
                }
 
-               self.lexer.next_token(&self.keywords);
+               self.lexer.next_token();
                stmt.url = Some(UrlSrc::Vid(self.cur_token.value.clone()));
 
                while !self.match_peek(TokenType::Semicolon){
-                  self.lexer.next_token(&self.keywords);
+                  self.lexer.next_token();
                   
                   match self.cur_token.token_type{
                     TokenType::Range =>{
@@ -211,13 +181,13 @@ impl <'a> Parser<'a>{
            },
            //Make detections on a single image.
            TokenType::Detections =>{
-               self.lexer.next_token(&self.keywords);
+               self.lexer.next_token();
                self.expect("from");
 
                if !self.match_peek(TokenType::Object){
                    panic!("Expected Object");
                }
-               self.lexer.next_token(&self.keywords);
+               self.lexer.next_token();
 
                self.expect("=");
                let url = self.cur_token.value.clone();
@@ -231,10 +201,10 @@ impl <'a> Parser<'a>{
      }
 
      fn parse_expr(&mut self)-> Expression{
-         let ident = self.lexer.next_token(&self.keywords).value;
+         let ident = self.lexer.next_token().value;
          let left = Expression::Identifier(ident);
 
-         let tok = self.lexer.next_token(&self.keywords);
+         let tok = self.lexer.next_token();
          match tok.token_type{
              TokenType::EQ =>{
                  let op = BinaryOperation::Equal;
@@ -267,24 +237,16 @@ impl <'a> Parser<'a>{
      }
 
      fn expect(&mut self, t: &str){
-         let tok = self.get_keyword(t);
+         let tok = Lexer::get_keyword(t);
          match tok{
              TokenType::Illegal =>{
              panic!("Error occurred:  unexpected {} in the fql statement", t);
              },
              _ => {
              self.cur_token = self.peek_token.clone();
-             self.peek_token = self.lexer.next_token(&self.keywords);
+             self.peek_token = self.lexer.next_token();
              }, 
          }
-     }
-
-    pub fn get_keyword(&self, t: &str)->TokenType{
-         if let Some(val) = self.keywords.get(&t){
-             return val.clone();        
-         }else{
-             return TokenType::Illegal;
-        }
      }
 
      fn match_peek(&self, t: TokenType)->bool{

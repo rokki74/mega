@@ -1,10 +1,10 @@
 use ort::session;
-use crate::{detection::Detection, fql_compiler::{lexer::TokenType, parser::{BinaryOperation, Expression, FqlOutCome, Object, Parser, SelectStatement, StatementEnum, UrlSrc}}, image_src, model_session};
+use crate::{detection::Detection, fql_compiler::{lexer::{TokenType, Lexer}, parser::{BinaryOperation, Expression, FqlOutCome, Object, Parser, SelectStatement, StatementEnum, UrlSrc}}, image_src, model_session};
 use std::{io::Write, net::TcpStream, time::Duration};
 use crate::{video_src::{VideoSrc, FrameIter}, frame::{Frame}};
 
 pub struct Executor<'a>{
-  parser: Parser<'a>,
+  parser: Parser,
   writer: &'a mut TcpStream,
 }
 
@@ -36,11 +36,11 @@ impl <'a> Executor<'a>{
        }
     }
 
-    pub fn execute(&mut self, fql: &'a str){
+    pub fn execute(&mut self, fql: &String){
        let queries = fql.split(";");
 
        for query in queries{
-           let stmt = self.parser.parse(query);
+           let stmt = self.parser.parse(query.to_string());
            let fql_outcm = stmt.execute();
 
            for outcm in fql_outcm{
@@ -197,8 +197,7 @@ impl SelectStatement{
                               EvaluationValue::Boolean(a == b)
                           },
                           (EvaluationValue::String(a), EvaluationValue::String(b))=>{
-                              let parser = Parser::empty();
-                              let k = parser.get_keyword(&a);
+                              let k = Lexer::get_keyword(&a);
 
                               match k{
                                   TokenType::Range =>{

@@ -1,4 +1,29 @@
-use std::{collections::HashMap, fmt::Display};
+use std::{collections::HashMap, fmt::Display, sync::LazyLock};
+
+static KEYWORDS: LazyLock<HashMap<&'static str, TokenType>> = LazyLock::new(||{
+   let mut keywords = HashMap::with_capacity(27_usize);
+   
+   keywords.insert("illegal", TokenType::Illegal);
+   keywords.insert("string", TokenType::String);
+   keywords.insert("star", TokenType::Star);
+   keywords.insert("number", TokenType::Number);
+   keywords.insert("semicolon", TokenType::Semicolon);
+   keywords.insert("eq", TokenType::EQ);
+   keywords.insert("eof", TokenType::EOF);
+   keywords.insert("range", TokenType::Range);
+   keywords.insert("objectimage", TokenType::ObjectImage);
+   keywords.insert("frameid", TokenType::FrameId);
+   keywords.insert("and", TokenType::And);
+   keywords.insert("where", TokenType::Where);
+   keywords.insert("classid", TokenType::ClassId);
+   keywords.insert("classname", TokenType::ClassName);
+   keywords.insert("video", TokenType::Video);
+   keywords.insert("select", TokenType::Select);
+   keywords.insert("or", TokenType::Or);
+   keywords.insert("from", TokenType::From);
+
+   keywords
+});
 
 #[derive(Clone, Debug)]
 pub enum TokenType{
@@ -48,25 +73,25 @@ impl Token{
     }
 }
 
-pub struct Lexer<'a>{
-    input: & 'a str,
+pub struct Lexer{
+    input: String,
     left_pointer: u32,
     right_pointer: u32,
     ch: u8,
 }
 
 
-impl <'a> Lexer<'a>{
-    pub fn empty()->Lexer<'a>{
+impl Lexer{
+    pub fn empty()->Lexer{
         Lexer{
-            input: "",
+            input: String::new(),
             left_pointer: 0,
             right_pointer: 1,
             ch: 0,
         }
     }
 
-    pub fn new(&mut self, input: &'a str){
+    pub fn new(&mut self, input: String){
        self.input = input;  
        self.read_char();
     }
@@ -134,7 +159,7 @@ impl <'a> Lexer<'a>{
        s.to_string()
    }
 
-   pub fn next_token(&mut self, keywords: &HashMap<&str, TokenType>)->Token{
+   pub fn next_token(&mut self)->Token{
       self.skip_whitespace();
 
       match self.ch{
@@ -147,7 +172,7 @@ impl <'a> Lexer<'a>{
           _ =>{
               if Self::is_letter(self.ch){
                  let value = self.read_identifier();
-                 if let Some(token_type) = keywords.get(&value){ 
+                 if let Some(token_type) = KEYWORDS.get(&value.as_str()){ 
                     return Token{token_type: token_type.clone(), value};
                  }else{
                      return  Token { token_type: TokenType::Illegal, value: String::from("")};
@@ -155,6 +180,16 @@ impl <'a> Lexer<'a>{
               }else if Self::is_digit(self.ch){
                   let num = self.read_number();
                   return Token{token_type: TokenType::Number, value: num};
-              } return Token{token_type: TokenType::Illegal, value: self.ch.to_string()}; }, }; self.read_char(); return Token { token_type: TokenType::Illegal, value: "".to_string() } } 
+              } return Token{token_type: TokenType::Illegal, value: self.ch.to_string()}; }, }; self.read_char(); return Token { token_type: TokenType::Illegal, value: "".to_string() } 
+   } 
+
+  pub fn get_keyword(t: &str)->TokenType{
+         if let Some(val) = KEYWORDS.get(&t){
+             return val.clone();        
+         }else{
+             return TokenType::Illegal;
+        }
+  }
+
 }
 

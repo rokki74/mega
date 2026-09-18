@@ -241,7 +241,7 @@ impl Frame{
                     timestamp: self.timestamp,
                 };
 
-               detect_y11(detection, &mut saved_detections)
+               saved_detections.push(detection);
             }
             println!("DETECTIONS FOUND:\n {:#?}", saved_detections);
         }
