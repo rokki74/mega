@@ -13,13 +13,9 @@ pub mod tracker;
 use std::{io::{BufReader, BufRead, Write}, net::{TcpListener, TcpStream}, thread};
 use crate::{fql_compiler::executor::Executor};
 
-type FQL = String;
-type TextContent = String;
-type Location = String;
-
 fn main() {    
    let listener = TcpListener::bind("127.0.0.1:5656").unwrap();
-
+   println!("FQL engine running on port 5656, localhost- 127.0.0.1");
    for stream in listener.incoming(){
       match stream{
           Ok(stream)=>{
@@ -71,10 +67,10 @@ fn handle_conn(stream: TcpStream){
           break;
       }
 
-      let _fql_outcome = executor.execute(&fql_query);
+      executor.execute(&fql_query);
 
 
-       let _ = head_starter.write_all(head_start);
+      let _ = head_starter.write_all(head_start);
    }
 }
 

@@ -25,7 +25,7 @@ static KEYWORDS: LazyLock<HashMap<&'static str, TokenType>> = LazyLock::new(||{
    keywords
 });
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum TokenType{
     Illegal,
     Number,

@@ -178,7 +178,7 @@ impl Frame{
                 };
 
                 //evaluate
-                let eval = Executor::evaluate(fql_out.finds, &detection);
+                let eval = Executor::evaluate(&fql_out.finds, &detection);
                 if let EvaluationValue::Boolean(v) = eval{
                    if v {
                        results.push(detection);
@@ -263,9 +263,11 @@ impl Frame{
         println!("DETECTIONS FOUND:\n {:#?}", final_dets);
 
         for f_det in final_dets{
-            let eval = Executor::evaluate(fql_out.finds, &f_det);
-            if eval{
-               results.push(f_det);
+            let eval = Executor::evaluate(&fql_out.finds, &f_det);
+            if let EvaluationValue::Boolean(v) = eval{
+               if v{
+                   results.push(f_det);
+               }
             }
         }
 

@@ -49,8 +49,8 @@ impl <'a> Executor<'a>{
        }
     }
 
-    pub fn evaluate(expr: Expression, detection: &Detection)->EvaluationValue{
-           SelectStatement::evaluate(expr, detection)
+    pub fn evaluate(expr: &Expression, detection: &Detection)->EvaluationValue{
+           SelectStatement::evaluate(expr.clone(), detection)
     }
 
     pub fn send_back_result(&mut self, outcome: FqlOutCome){

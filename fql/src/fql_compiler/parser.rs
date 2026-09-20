@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::{time::Duration};
 use crate::{fql_compiler::{executor::{parse_media_timestamp}, lexer::{Lexer, Token, TokenType}}, video_src::ApiPref};
 
 pub struct Parser{
@@ -83,20 +83,10 @@ impl Parser{
     }
 }
 
-type FrameId = usize;
-type URL = String;
-type VidUrl = String;
 #[derive(Debug)]
 pub enum UrlSrc{
     Vid(String),
     Img(String),
-}
-
-#[derive(Debug)]
-pub struct FramesDB{
-    source: UrlSrc,
-    target: Option<UrlSrc>,
-    table: HashMap<usize, Option<Duration>>,
 }
 
 pub enum StatementEnum{
@@ -250,15 +240,7 @@ impl Parser{
      }
 
      fn match_peek(&self, t: TokenType)->bool{
-         const VAL: TokenType = self.peek_token.token_type.clone();
-         match t{
-           VAL => {println!("matched a peek token"); true},
-           _ => {
-               eprintln!("Error occurred:  unexpected {} in the fql statement", t);
-         
-               false
-            },
-         }
+        t == self.peek_token.token_type
      }
 }
 
