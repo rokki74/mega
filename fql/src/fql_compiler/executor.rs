@@ -1,6 +1,7 @@
 use ort::session;
+use std::{path::Path};
 use crate::{detection::Detection, fql_compiler::{lexer::{TokenType, Lexer}, parser::{BinaryOperation, Expression, FqlOutCome, Object, Parser, SelectStatement, StatementEnum, UrlSrc}}, image_src, model_session};
-use std::{io::Write, net::TcpStream, time::Duration};
+use std::{io::{self, Write}, net::TcpStream, time::Duration};
 use crate::{video_src::{VideoSrc, FrameIter}, frame::{Frame}};
 
 pub struct Executor<'a>{
@@ -8,16 +9,18 @@ pub struct Executor<'a>{
   writer: &'a mut TcpStream,
 }
 
+#[derive(Debug)]
 enum FqlOutputType {
     SNAPSHOTS,
     DETECTIONS,
     FRAMES,
 }
 
+#[derive(Debug)]
 pub struct FqlOutput{
     fql_out_type: FqlOutputType,
-    range: (Duration, Duration),
-    pub finds: Expression,
+    range: Option<(Duration, Duration)>,
+    pub finds: Option<Expression>,
 }
 
 pub enum EvaluationValue{
@@ -25,6 +28,10 @@ pub enum EvaluationValue{
     Integer(u64),
     String(String),
     Null,
+}
+
+fn split_fql_statement(input: &String)->Vec<String>{
+    input.split_inclusive(";").map(|sp| sp.to_string()).collect()
 }
 
 impl <'a> Executor<'a>{
@@ -36,13 +43,26 @@ impl <'a> Executor<'a>{
        }
     }
 
+    pub fn send_message(writer: &mut TcpStream, msg: &str){
+        let msg = msg.to_string() + "\n";
+        let _ = writer.write_all(msg.as_bytes());
+    }
+
     pub fn execute(&mut self, fql: &String){
-       let queries = fql.split(";");
+       let queries = split_fql_statement(fql);
+
+       let s_stream = self.writer.try_clone();
+       let mut writer = match s_stream{
+           Ok(s) => s,
+           Err(e) => panic!("Unable to clone tcp stream, due to err: {}", e),
+       };
 
        for query in queries{
-           let stmt = self.parser.parse(query.to_string());
+           //println!("AT EXECUTOR, PRCESSING QUERY: {}", query);
+           let stmt = self.parser.parse(query.to_string(),&mut writer, Self::send_message);
            let fql_outcm = stmt.execute();
 
+           println!("LEN OF OUTCOMES AT THE END IS: {}", fql_outcm.len());
            for outcm in fql_outcm{
               self.send_back_result(outcm);
            }
@@ -81,7 +101,7 @@ impl <'a> Executor<'a>{
 
 pub trait Statement{
     fn execute(&self)->Vec<FqlOutCome>{
-       println!("executing statement");
+       //println!("executing statement");
        vec![FqlOutCome::NULL]
     }
 }
@@ -89,7 +109,15 @@ pub trait Statement{
 impl Statement for StatementEnum{
     fn execute(&self)->Vec<FqlOutCome>{
         match self{
-            StatementEnum::SelectStatement(stmt) => stmt.execute(),
+            StatementEnum::SelectStatement(stmt) => {
+                let _ = io::stdout().flush();
+                stmt.execute()
+            },
+            StatementEnum::VOID =>{
+                println!("(Executor/Statement) statement enum is void..");
+                let _ = io::stdout().flush();
+                vec![FqlOutCome::NULL]
+            },
         }
     }
 }
@@ -97,14 +125,29 @@ impl Statement for StatementEnum{
 impl Statement for SelectStatement{
     fn execute(&self) -> Vec<FqlOutCome>{
         if let Some(url_src) = &self.url{
+            let base_url = "/home/nines/Desktop/rusty/mega/fql/assets/";
+            let _ = io::stdout().flush();
             match url_src{
-                UrlSrc::Vid(vid_url) =>{
-                   let (frms_iter, mut session) = VideoSrc::open(&vid_url, &self.preference); 
+                UrlSrc::Vid(file_src) =>{
+                    println!("The url_src is vid");
+                    let file_src = &(base_url.to_string() + file_src);
+                    let file_path = Path::new(&file_src);
+                      if file_path.exists(){
+                         let (frms_iter, mut session) = VideoSrc::open(&file_src, &self.preference); 
+                         
+                        let _ = io::stdout().flush();
+                        self.execute_frames(frms_iter, &mut session)
 
-                   self.execute_frames(frms_iter, &mut session)
+                      }else{
+                          //println!("Video file provided: {} doesn't exist", file_src);
+                          vec![FqlOutCome::NULL]
+                      }
                 },
                 UrlSrc::Img(img_url) =>{
+                    println!("The url_src is img");
+                   let img_url = &(base_url.to_string() + img_url);
                    let (frm, mut session) =  image_src::open_image(&img_url);
+                    let _ = io::stdout().flush();
                    if let Some(f) = self.execute_frame(frm, &mut session){
                       vec![f]
                    }else{
@@ -125,9 +168,10 @@ impl SelectStatement{
             Object::Detections => FqlOutputType::DETECTIONS,
             _=> FqlOutputType::FRAMES,
         };
+        
 
-        let range = self.timeline?;
-        let finds = self.expr.clone()?;
+        let range = self.timeline;
+        let finds = self.expr.clone();
         
         let fql_out = FqlOutput{
             fql_out_type,
@@ -135,31 +179,50 @@ impl SelectStatement{
             finds,
         };
 
-        let results = frame.process_frame(session, true, fql_out);
-        Some(results)
+        println!("(FQLOUTPUT)  Processing your wants, fql_out: {:#?}", fql_out);
+
+        let _ = io::stdout().flush();
+        Some(frame.process_frame(session, fql_out))
     }
 
     fn execute_frames(&self, frms_iter: FrameIter, session: &mut session::Session)->Vec<FqlOutCome>{
        let mut out: Vec<FqlOutCome> = Vec::new();
+       let max_counts = 50;
+        let mut counts = 0;
        match frms_iter{
             FrameIter::Ocv(ocvs) =>{
+                //returning at 50
                 for frm in ocvs{
+                    counts +=1;
+                    if counts > max_counts{
+                        println!("{} reached..", max_counts);
+                        break;
+                    }
+                    
                     if let Some(f_out) = self.execute_frame(frm, session){
                         out.push(f_out);
                     }else{
                         out.push(FqlOutCome::NULL);
                     }
+                    let _ = io::stdout().flush();
                 }
 
                 out
             },
             FrameIter::Ffm(ffms)=>{
                 for frm in ffms{
+                    //returning at 50
+                    counts +=1;
+                    if counts > max_counts{
+                        return out;
+                    }
                     if let Some(f_out) = self.execute_frame(frm, session){
                         out.push(f_out);
                     }else{
+                        println!("pushing null into outcms");
                         out.push(FqlOutCome::NULL);
                     }
+                    let _ = io::stdout().flush();
                 }
 
                 out

@@ -3,3 +3,5 @@ fql/venv/
 fql/assets/
 fql/scripts/*.pt
 fql/scripts/*.onnx
+fql/*.logs
+fql/*.logs

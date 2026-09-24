@@ -5,7 +5,7 @@ use image::{DynamicImage, RgbImage};
 use opencv::{self, core::{Mat, MatTraitConst, MatTraitConstManual}, imgproc};
 use ort::{value::TensorRef, session::Session};
 use ndarray::Array4;
-use crate::{detection::{Detection, iou, detect_back}};
+use crate::{detection::{Detection, detect, OutCome}};
 
 
 #[derive(Debug, Clone)]
@@ -122,7 +122,7 @@ impl Frame{
        }
     }
 
-    pub fn process_frame(&self, session: &mut Session, use_yolo26:bool, fql_out: FqlOutput) ->FqlOutCome{
+    pub fn process_frame(&self, session: &mut Session, fql_out: FqlOutput) ->FqlOutCome{
         let letterboxed = self.letterbox(640);
         let tensor = letterboxed.to_tensor();
 
@@ -134,58 +134,91 @@ impl Frame{
         let output = outputs[0].try_extract_array::<f32>().expect("Failure to get output by extractin array at outputs[0] index 0");
 
         //println!("output shape: {:?}", output);
-
         let num_predictions = output.shape()[1];
         println!("predictions: {}", num_predictions);
 
         let output = output.index_axis(ndarray::Axis(0), 0);
         //println!("Output2's shape: {:?}", output.shape());
 
-        let mut results: Vec<Detection> = Vec::new();
-        let mut saved_detections: Vec<Detection> = Vec::new();
-        if use_yolo26{
-            //println!("Using yolo26n..");
-            for pred in output.axis_iter(ndarray::Axis(0)) {
-                let score = pred[4];
-                if score < 0.5 {
-                    continue;
-                }
+        let mut results: Vec<String> = Vec::new();
+        for pred in output.axis_iter(ndarray::Axis(0)) {
+            let score = pred[4];
+           /* if score < 0.5 {
+                continue;
+            } */
 
-                println!("CURRENT pred: {}", pred);
-                let x1 = pred[0];
-                let y1 = pred[1];
-                let x2 = pred[2];
-                let y2 = pred[3];
+            //println!("CURRENT pred: {}", pred);
+            let x1 = pred[0];
+            let y1 = pred[1];
+            let x2 = pred[2];
+            let y2 = pred[3];
 
-                let class_id = pred[5] as usize;
-                
-                let (x1, y1, x2, y2) = letterboxed.info.to_original(
-                        x1,
-                        y1,
-                        x2,
-                        y2,
-                    );
+            let class_id = pred[5] as usize;
+            
+            let (x1, y1, x2, y2) = letterboxed.info.to_original(
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                );
 
-                let detection = Detection {
-                     class_id,
-                     score,
-                     x1,
-                     y1,
-                     x2,
-                     y2,
-                     frm_no: self.frm_no,
-                     timestamp: self.timestamp,
-                };
+            let detection = Detection {
+                 class_id,
+                 score,
+                 x1,
+                 y1,
+                 x2,
+                 y2,
+                 frm_no: self.frm_no,
+                 timestamp: self.timestamp,
+            };
 
-                //evaluate
-                let eval = Executor::evaluate(&fql_out.finds, &detection);
-                if let EvaluationValue::Boolean(v) = eval{
-                   if v {
-                       results.push(detection);
-                   }
-                }
+            //evaluate
+            /*if let Some(ref expr) = fql_out.finds{
+                let eval = Executor::evaluate(expr, &detection);
+                if let EvaluationValue::Boolean(v) = eval && v {
+                    let dete = detect(&detection);
+                    if let OutCome::Res(fmted) = dete{
+                       results.push(fmted);
+                    }
+                }else{
+                  //No expression to process output, all of it is valid
+                    let dete = detect(&detection);
+                    if let OutCome::Res(fmted) = dete{
+                       results.push(fmted);
+                    }
+               }
+            }else{
+                  //No expression to process output, all of it is valid
+                    let dete = detect(&detection);
+                    if let OutCome::Res(fmted) = dete{
+                       results.push(fmted);
+                    }
+           }
+            */
+
+            //INTRODUCED BUG, FOR TESTING PURPOSE TO ENSURE OUTPUT REALLY IS EVER REACHING THE USER
+            //OVER THE SOCKET
+            let dete = detect(&detection);
+            if let OutCome::Res(fmted) = dete{
+                results.push(fmted);
+            }else{
+                println!("Invalid result outcome got!");
             }
+
+        }
+
+        if results.is_empty(){
+            println!("#(process_frame) Results is empty!");
+            FqlOutCome::NULL
         }else{
+            println!("#(process_frame) Results is available");
+            FqlOutCome::Multiple(results)
+        }
+    }
+
+        /* USING YOLO11N BLOCK IN process_frame 
+        else{
             println!("Using yolo11n..");
             for pred in output.axis_iter(ndarray::Axis(2)){
                 //decoding one prediction
@@ -262,22 +295,28 @@ impl Frame{
         }
         println!("DETECTIONS FOUND:\n {:#?}", final_dets);
 
-        for f_det in final_dets{
-            let eval = Executor::evaluate(&fql_out.finds, &f_det);
-            if let EvaluationValue::Boolean(v) = eval{
-               if v{
-                   results.push(f_det);
-               }
+        /* if let Some(ex) = fql_out.finds{
+            for f_det in final_dets{
+                let eval = Executor::evaluate(&ex, &f_det);
+                if let EvaluationValue::Boolean(v) = eval{
+                   if v{
+                       results.push(f_det.clone());
+                   }
+                }
             }
-        }
-
-        let outcome = detect_back(results);
-        if let Some(fout) = outcome{
-            fout
         }else{
-            FqlOutCome::NULL
+            for f_det in final_dets{
+             //Pushing results as no filter is present, i.e no expression
+                results.push(f_det.clone());
+            }
+        } */ 
+        
+        for f_det in final_dets{
+            results.push(f_det);
+
         }
-    }
+*/
+
 
     pub fn process_frame_raw(&self, session: &mut Session) -> Vec<Detection>{
         let letterboxed = self.letterbox(640);

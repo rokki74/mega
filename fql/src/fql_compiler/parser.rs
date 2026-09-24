@@ -1,4 +1,6 @@
 use std::{time::Duration};
+use std::net::TcpStream;
+
 use crate::{fql_compiler::{executor::{parse_media_timestamp}, lexer::{Lexer, Token, TokenType}}, video_src::ApiPref};
 
 pub struct Parser{
@@ -7,6 +9,7 @@ pub struct Parser{
     cur_token: Token,
 }
 
+#[derive(Debug)]
 pub enum Object {
     Frames,
     Image(String),
@@ -20,7 +23,7 @@ pub enum FqlOutCome{
     Multiple(Vec<String>),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum BinaryOperation{
    Equal,
    And, 
@@ -39,7 +42,7 @@ impl BinaryOperation{
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Expression{
     NumberLiteral(String),
     StringLiteral(String),
@@ -52,7 +55,7 @@ pub enum Expression{
     }  
 }
                        
-
+#[derive(Debug)]
 pub struct SelectStatement{
     pub target: Object,
     pub url: Option<UrlSrc>,
@@ -90,34 +93,35 @@ pub enum UrlSrc{
 }
 
 pub enum StatementEnum{
-    SelectStatement(SelectStatement)
+    SelectStatement(SelectStatement),
+    VOID
 }
 
 impl Parser{
-     pub fn parse(&mut self, query: String)->StatementEnum{
+     pub fn parse<T: Fn(&mut TcpStream, &str)>(&mut self, query: String, stream: &mut TcpStream, messenger: T)->StatementEnum{
          self.lexer.new(query.clone());
-         let token = self.lexer.next_token();
 
-         println!("handling the token: token val: {}, token_type: {} Inside the parser", token.value, token.token_type);
+         let token = self.lexer.next_token();
              
-         match token.token_type{
+         self.cur_token = token.clone();
+         self.peek_token = self.lexer.next_token();
+         match self.cur_token.token_type{
              TokenType::Select => {
-                 StatementEnum::SelectStatement(self.parse_select())
+                 StatementEnum::SelectStatement(self.parse_select(stream, messenger))
              },
              _=>{ 
-                 println!("Illegal value {} in statement: {}", token.value, query);
-                 panic!("Expected an fql statement/query, cannot process a non-fql query input");
+                 messenger(stream, "Expected an fql statement/query, cannot process a non-fql query input");
+                 StatementEnum::VOID
              },
          }
     }
 
-    fn parse_select(&mut self)-> SelectStatement{
+    fn parse_select<T: Fn(&mut TcpStream, &str)>(&mut self, stream: &mut TcpStream, messenger: T)-> SelectStatement{
         self.expect("select");
-       
         let mut stmt = SelectStatement::empty();
         match self.cur_token.token_type{
            TokenType::Star =>{
-               self.expect("*");
+               self.expect("star");
                
                match self.cur_token.token_type{
                    TokenType::Frames =>{
@@ -127,27 +131,30 @@ impl Parser{
                        stmt.target = Object::ObjectImages
                    },
                    _=>{
-                       panic!("Error parsing statement, unexpected token")
+                       let s = format!("Error parsing statement, unexpected token,  Instead found the token: {} expected either Frames or object images", self.cur_token);
+                       messenger(stream, &s);
                    }
                }
 
                self.expect("from");
 
+               /*
                if !self.match_peek(TokenType::Video){
                    panic!("Incorrect syntax, needed a video instead.");
                }
+               */
+               self.expect("video");
                
                self.lexer.next_token();
-               if !self.match_peek(TokenType::EQ){
-                   panic!("Incorrect syntax, needed an equal operation/sign");
-               }
 
-               self.lexer.next_token();
-               stmt.url = Some(UrlSrc::Vid(self.cur_token.value.clone()));
+               self.expect("eq");
+
+               
+               let url = self.cur_token.value.clone();
+               stmt.url = Some(UrlSrc::Vid(url.clone()));
+               self.expect("string");
 
                while !self.match_peek(TokenType::Semicolon){
-                  self.lexer.next_token();
-                  
                   match self.cur_token.token_type{
                     TokenType::Range =>{
                        self.expect("range");
@@ -163,34 +170,50 @@ impl Parser{
                     TokenType::Where =>{
                       self.expect("where");
 
-                      stmt.expr = Some(self.parse_expr());
+                      stmt.expr = Some(self.parse_expr(stream, &messenger));
                     },
-                    _=>{panic!("Expected either a where clause or range statement!, found {} of type {}", self.cur_token.value, self.cur_token.token_type);},
+                    _=>{let err = format!("Expected either a where clause or range statement!, found {} of type {}", self.cur_token.value, self.cur_token.token_type);
+                        messenger(stream, &err);
+                    },
                   }
                }
            },
-           //Make detections on a single image.
+           //Make detections
            TokenType::Detections =>{
-               self.lexer.next_token();
+               self.expect("detections");
                self.expect("from");
 
-               if !self.match_peek(TokenType::Object){
-                   panic!("Expected Object");
-               }
-               self.lexer.next_token();
+               println!("CURRENT STATE: cur: {}, peek: {}", self.cur_token, self.peek_token);
 
-               self.expect("=");
-               let url = self.cur_token.value.clone();
-               stmt.url = Some(UrlSrc::Vid(url));
+               match self.cur_token.token_type{
+                   TokenType::Object=>{
+                       self.expect("object");
+                       self.expect("eq");
+                         let url = self.cur_token.value.clone();
+                         println!("image's url: {}", url);
+                           stmt.url = Some(UrlSrc::Img(url));
+                   },
+                   TokenType::Video =>{
+                         self.expect("video");
+                            let url = self.cur_token.value.clone();
+                         println!("video's url: {}", url);
+                           stmt.url = Some(UrlSrc::Vid(url));
+                   },
+                   _=>{
+                       messenger(stream, "Invalid token found detections can only work if in Object(images including jpg etc) or Video(e.g .mp4 files) types");
+                       panic!("Error parsing a detection object");
+                   }
+               }
+
                stmt.target = Object::Detections;
            },
-           _=>{},
+           _=>{println!("THE escaping part......")},
         } 
 
         stmt
      }
 
-     fn parse_expr(&mut self)-> Expression{
+     fn parse_expr<T: Fn(&mut TcpStream, &str)>(&mut self, stream: &mut TcpStream, messenger: T)-> Expression{
          let ident = self.lexer.next_token().value;
          let left = Expression::Identifier(ident);
 
@@ -198,7 +221,7 @@ impl Parser{
          match tok.token_type{
              TokenType::EQ =>{
                  let op = BinaryOperation::Equal;
-                 let right = self.parse_expr();
+                 let right = self.parse_expr(stream, messenger);
 
                  Expression::Binary { left: Box::new(left), op, right: Box::new(right) }
              },
@@ -212,28 +235,41 @@ impl Parser{
             },
             TokenType::Or =>{
                 let op = BinaryOperation::Or;
-                let right = self.parse_expr();
+                let right = self.parse_expr(stream, messenger);
                 
                 Expression::Binary { left: Box::new(left), op, right: Box::new(right)}
             },
             TokenType::And =>{
                 let op = BinaryOperation::And;
-                let right = self.parse_expr();
+                let right = self.parse_expr(stream, messenger);
 
                 Expression::Binary { left: Box::new(left), op, right: Box::new(right) }
             }
-            _=>panic!("Expected either a number or string, found {}", self.cur_token.value),
+            _=>{
+                let err = format!("Expected either a number or string, found {}", self.cur_token.value);
+                messenger(stream, &err);
+                panic!("Unable to process the expression");
+            }
          }
      }
 
      fn expect(&mut self, t: &str){
          let tok = Lexer::get_keyword(t);
+         if tok == self.cur_token.token_type{
+             println!("Expected token doesn't match what's contained in current token i.e cur_tok: ({}), keywrd: ({})", self.cur_token, tok);
+         }
+
          match tok{
              TokenType::Illegal =>{
              panic!("Error occurred:  unexpected {} in the fql statement", t);
              },
              _ => {
              self.cur_token = self.peek_token.clone();
+             //caller to next_token function must be responsible for calling the read_char Just like new lexer did so as to
+             //make it work for everyone elese thus after creating a new lexer next reads need to
+             //utilise this expect func as it is the ony interface to facilitate before reading
+             //next_token
+             self.lexer.update_left_and_right();
              self.peek_token = self.lexer.next_token();
              }, 
          }

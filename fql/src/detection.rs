@@ -1,6 +1,5 @@
 use std::{collections::HashMap, time::Duration};
 
-use crate::fql_compiler::parser::FqlOutCome;
 
 #[derive(Debug, Clone)]
 pub struct Detection{
@@ -135,22 +134,24 @@ pub fn detect_all_show(detections: &Vec<Detection>){
    }
 }
 
-enum OutCome{
+pub enum OutCome{
     NULL,
     Res(String),
 }
 
+//CRITICAL IN EXPRESSION, I CAN LATER ADD IN CLASSID FROM EXPR SO I SOLVE THE EXPRESSION ON THAT
+//INCASE PROVIDED e.g where classname="person"
 #[inline]
-fn detect(d: &Detection)->OutCome{
+pub fn detect(d: &Detection)->OutCome{
        let res_string = String::new();
-       println!("{} {:.2} ({}, {}, {}, {})",
-       COCO_CLASSES[d.class_id],
-       d.score,
-       d.x1,
-       d.y1,
-       d.x2,
-       d.y2
-       );
+       // println!("{} {:.2} ({}, {}, {}, {})",
+       // COCO_CLASSES[d.class_id],
+       // d.score,
+       // d.x1,
+       // d.y1,
+       // d.x2,
+       // d.y2
+       // );
 
        let frm_no = d.frm_no;
 
@@ -169,7 +170,9 @@ fn detect(d: &Detection)->OutCome{
                        return OutCome::Res(f);
                    },
                    _=>{
-                       return OutCome::NULL;
+                       let f = format!("{} seen on timestamp: {:#?} for frm number: {:#?}", COCO_CLASSES[d.class_id], d.timestamp, d.frm_no);
+                       return OutCome::Res(f);
+                       //return OutCome::NULL;
                    }
                }
            },
@@ -183,29 +186,15 @@ fn detect(d: &Detection)->OutCome{
                      return OutCome::Res(f);
                    },
                    _=>{
-                       return OutCome::NULL;
+                       let f = format!("{} seen on timestamp: {:#?} for frm number: {:#?}", COCO_CLASSES[d.class_id], d.timestamp, d.frm_no);
+                       return OutCome::Res(f);
+                       //return OutCome::NULL;
                    }
               }
            }
        }
 
        OutCome::Res(res_string)
-}
-
-pub fn detect_back(results: Vec<Detection>)->Option<FqlOutCome>{
-    let mut out: Vec<String> = Vec::new();
-    for res in results{
-        let dete = detect(&res);
-        if let OutCome::Res(r) = dete{
-           out.push(r) 
-        }
-    }
-
-    if out.is_empty(){
-        return None;
-    }
-    
-    Some(FqlOutCome::Multiple(out))
 }
 
 pub fn iou(det: &Detection, other: Detection) ->f32{

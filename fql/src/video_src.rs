@@ -3,6 +3,7 @@ use crate::model_session;
 use ort::{session::Session};
 
 
+#[derive(Debug)]
 pub enum ApiPref{
     OCV,
     FFP,
@@ -45,16 +46,18 @@ impl Iterator for FrameIter{
 
 impl VideoSrc{
     pub fn open(url: &String, preference: &ApiPref) ->(FrameIter, Session){
+       println!("OPENING VID of url: {}", url);
+       
        let session = model_session::init_yolo_sesion(true);
 
        match preference{
            ApiPref::OCV =>{
                let frms_iter = OpenCvFrame::open(url);
-               return (FrameIter::Ocv(frms_iter), session);
+               (FrameIter::Ocv(frms_iter), session)
            },
            ApiPref::FFP =>{
                let frms_iter = FfmFrame::open(url);
-               return (FrameIter::Ffm(frms_iter), session);
+               (FrameIter::Ffm(frms_iter), session)
            }
        }
     }

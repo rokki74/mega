@@ -1,0 +1,298 @@
+SO i think currently the most correct thing working is that the lexer starts off with its charachter read as zer which trnslats to token type EOF and thus end of file.
+Found the probably cause of the errors in parser, everything seems to work fine just a tiny bug where the first char is never being read thus becomes elect instead of select token as an example to show this.
+Yes found the mistake the lexer has it's left-pointer far intialized to the extent it never reads from start on next read_char including the first maybe:  Letter representation(before read_char): 
+            Letter representation(After read_char): e
+
+=========================================================
+  CULPRIT FOR BREAKING MY PARSER
+=========================================================
+fn read_char(&mut self){
+        let input_bytes = self.input.as_bytes();
+        if self.right_pointer as usize >= input_bytes.len(){
+            println!("the right_pointer seems to be well ahead of input string len bytes, returning ch=0");
+            self.ch = 0;
+        }else{
+            self.ch = input_bytes[self.right_pointer as usize];
+            self.left_pointer = self.right_pointer;
+            self.right_pointer += 1;
+        }
+    }
+
+
+=========================
+CULPRIT FOR IGNORING THE FIRST VALID char
+========================
+=> Must be the caller to the read_identifier having pre read i.e called self.read_char making left_pointer point to the 1'st index instead of at start 0 a left_pointer increments into right_pointer's value on call while right increases by 1.
+HERE: 
+  ON READ_IDENTIFIER, start is at len: 1
+  fn read_identifier(&mut self) -> String{
+        let start = self.left_pointer as usize;
+        println!("ON READ_IDENTIFIER, start is at len: {}", start);
+        while Lexer::is_letter(self.ch) || Lexer::is_digit(self.ch){
+            self.read_char();
+        }
+
+        let end = self.left_pointer as usize;
+        let s = &self.input[start..end];
+        println!("read ident: {}", s);
+        s.to_string()
+    }
+=>The found culprit: 
+        
+surpsdingly ch is never changed in between calls and remains as s when the read_idenfifier is called but then the let_pointer is at e not s unlike the correct way it should have been still at s oh i read ch before matching it and it's value is already stroed thus lying that the ch is correct while currently the lexer will make the token starting from left_pointer and not the already pre read ch s. Here: 
+current lexer's , before skip_whitespace() char: 115
+Letter representation(current lexer's char): s
+ch is letter: true
+left left_pointer at letter: s
+ch BEFORE READ IDENT: 115
+ch INSIDE READ IDENT BEFORE ANYTHING: 115
+ON READ_IDENTIFIER, start is at len: 1 .
+ =======> SOlution maybe i ned a peek function an associated one for the lexer to be checking the char ch instead of reading char and invalidating the beginning of the left_pointer yes!!!
+          =====>PROBLEM WAS TRACKED AFTER FINDING read_char had been the cause of invalid char ch and after deeper tracking it wqas the intiialization of new Lexer where there was a problem and the logic would be correct if left_pointer always held the position of ch stored in lexer while right_pointer pointed to the next and only increments after a read_char which makes it such that the new lexer needs to init botyh left and right pointer at 0 and call right_pointer += 1 after a read_char afere making the left_pointer  be equal to the right_pointer before this increment by 1, then the next would make it move accordingl to the char read position.
+
+
+
+====================================
+SHOPULDN'T BE HITTING A NEW LEXER JUST YET AND WHY IS IT NOT CHECKING THE TOKEN TYPE FOR THE * THE MATCH SHOULD HAVE CAUGHT IT???
+=============================
+Letter representation(current lexer's char): s
+LEFTY;; Left pointer is at: 0
+left left_pointer at letter: s
+read ident: select
+parser received TOKEN: Select, select
+handling the token: token val: select, token_type: Select Inside t
+he parser
+THE next_token hit..
+current lexer's , before skip_whitespace() char: 32
+skipping white space
+Letter representation(current lexer's char): *
+LEFTY;; Left pointer is at: 7
+the right_pointer seems to be well ahead of input string len bytes
+, returning ch=0
+NEW LEXER HIT..   Letter representation(After read_char): 
+C
+============PROBLEM
+==> PREMATURE CALL TO NEW LEXER WHICH INVALIDATES THE CURRENT LEXER NOT YET FULLY PROCESSED REMAINING TOKENS UNREAD.
+==========ANTICIPATED SOURCE
+      Uninitialised parser's toks i.e cur and peek_tokens. 
+  Both must be still at thei EOF token types thus promting the call to new lexer???
+
+  Is there need for expect while as i can see parser already received the token: (testing later by removing the expect in parse_select as parse function already had it checked no need for expect inside it)
+HERE:  
+     parser received TOKEN: Select, select
+handling the token: token val: select, token_type: Select Inside t
+he parser
+PARSING SELECT..
+INSIDE EXPECT, keyword expected was: Select
+Inspecting current parser toks, cur: (EOF, ), peek: (EOF, )
+THE next_token hit..
+skipping white space
+Letter representation(current lexer's char): *
+LEFTY;; Left pointer is at: 7
+expected the select..
+the right_pointer seems to be well ahead of input string len bytes
+, returning ch=0
+====>ANTICIPATED SOLUTION
+   ==There must be part that is escaping inside a match expression as the parser's token types are EOF and is not captured specifically but generall _=>{} expression.
+       ==============================
+       RIGHT INTUITION
+       ==========================
+The escaping part analogy was true and caused by parser's toks never being updated whatsoever need a way to always do that.
+ Part that was missing:     
+         self.cur_token = token.clone();
+         self.peek_token = self.lexer.next_token();
+         match self.cur_token.token_type{
+     
+
+================================================
+EXPECTING THE LITERAL MEANING OF THINGS INSTEAD OF THE REPREENTATION WORDS FOR THEM i.e expect(*) instead of expect("star") is causing a valid logic to fail and thus causing a round of unread token.
+HERE: 
+    Letter representation(current lexer's char): *
+LEFTY;; Left pointer is at: 7
+INSIDE EXPECT, keyword expected was: Select
+Inspecting current parser toks, cur: (Select, select), peek: (Star
+, *)
+THE next_token hit..
+Letter representation(current lexer's char): *
+LEFTY;; Left pointer is at: 7
+INSIDE EXPECT, keyword expected was: Illegal
+Inspecting current parser toks, cur: (Star, *), peek: (Star, *)
+
+thread '<unnamed>' (8860) panicked at fql/src/fql_compiler/parser.
+r
+
+fn parse_select(&mut self)-> SelectStatement{
+        self.expect("select");
+        let mut stmt = SelectStatement::empty();
+        match self.cur_token.token_type{
+           TokenType::Star =>{
+               self.expect("*");
+               
+               match self.cur_token.token_type{
+                   TokenType::Frames =>{
+
+==========================================
+CAUSE
+========================================
+After reviewing all the code io noticed after the call for new lexer no one ever calls read_char again making skipping white space or even moving the right_pointer next imppossible as only the read_char has the ability. --Now where to call read_char to make sure it won't break on new lexer and also on next next_token calls, woof!
+ =========================================
+ FINDINGS PLUS SOLUTIONS
+ ====================================== //caller to next_token function must be responsible for calling the read_char Just like new lexer did so as to
+             //make it work for everyone elese thus after creating a new lexer next reads need to
+             //utilise this expect func as it is the ony interface to facilitate before reading
+             //next_token.
+
+=================================
+PROBLEM Inside parse_select i did not expect("from") 
+      reminds me a caller needs to utilize expect() always or they would remain in one spot for ever causing errors.
+===================================
+
+==============================
+BUG  -- read_string doesn't read upto next quote.
+=============================
+Thus invalidate reading of next token, HERE: 
+read string: bon instead of bon.mp4 enclosed as 'bon.mp4'
+AT STRING. found token: String, bon
+
+thread '<unnamed>' (11271) panicked at fql/src/fql_compiler/parser
+.rs:136:24:
+
+
+=============================================
+PROBLEM --executor splits user querys into two parts at the ; char and make the parser never know the end of a statement and thus endless parsing resulting to next_token func panicking.
+=================================
+SOLUTION 
+=================================
+The split_inclusive function in string.
+
+
+===========================================
+THIS IS WHAT HAPPENS WHEN THE CRETOR OF PARSER FORGETS HIS OWN rules!
+=============================================
+Current lexer char is a closing quote. CLOSING QUOTE FOUND, skippi
+ng..
+the right_pointer seems to be well ahead of input string len bytes
+, returning ch=0
+read string: n
+AT STRING. found token: String, n
+
+thread '<unnamed>' (6441) panicked at fql/src/fql_compiler/parser.
+rs:136:24:
+Error parsing statement, unexpected token,  Instead found the toke
+n: Video, video expected either Frames or object images
+note: run with `RUST_BACKTRACE=1` environment variable to display 
+a backtrace
+
+
+Letter representation(current lexer's char): '
+LEFTY;; Left pointer is at: 20
+Current lexer char is a closing quote. CLOSING QUOTE FOUND, skippi
+ng..
+the right_pointer seems to be well ahead of input string len bytes
+, returning ch=0
+read string: n
+AT STRING. found token: String, n
+
+thread '<unnamed>' (6441) panicked at fql/src/fql_compiler/parser.
+rs:136:24:
+Error parsing statement, unexpected token,  Instead found the toke
+n: Video, video expected either Frames or object images
+note: run with `RUST_BACKTRACE=1` environment variable to display 
+a backtrace
+
+Letter representation(current lexer's char): '
+LEFTY;; Left pointer is at: 20
+Current lexer char is a closing quote. CLOSING QUOTE FOUND, skippi
+ng..
+the right_pointer seems to be well ahead of input string len bytes
+, returning ch=0
+read string: n
+AT STRING. found token: String, n
+
+thread '<unnamed>' (6441) panicked at fql/src/fql_compiler/parser.
+rs:136:24:
+Error parsing statement, unexpected token,  Instead found the toke
+n: Video, video expected either Frames or object images
+note: run with `RUST_BACKTRACE=1` environment variable to display 
+a backtrace
+
+Letter representation(current lexer's char): '
+LEFTY;; Left pointer is at: 20
+Current lexer char is a closing quote. CLOSING QUOTE FOUND, skippi
+ng..
+the right_pointer seems to be well ahead of input string len bytes
+, returning ch=0
+read string: n
+AT STRING. found token: String, n
+
+thread '<unnamed>' (6441) panicked at fql/src/fql_compiler/parser.
+rs:136:24:
+Error parsing statement, unexpected token,  Instead found the toke
+n: Video, video expected either Frames or object images
+note: run with `RUST_BACKTRACE=1` environment variable to display 
+a backtrace
+
+Letter representation(current lexer's char): '
+LEFTY;; Left pointer is at: 20
+Current lexer char is a closing quote. CLOSING QUOTE FOUND, skippi
+ng..
+the right_pointer seems to be well ahead of input string len bytes
+, returning ch=0
+read string: n
+AT STRING. found token: String, n
+
+thread '<unnamed>' (6441) panicked at fql/src/fql_compiler/parser.
+rs:136:24:
+Error parsing statement, unexpected token,  Instead found the toke
+n: Video, video expected either Frames or object images
+note: run with `RUST_BACKTRACE=1` environment variable to display 
+a backtrace
+
+Letter representation(current lexer's char): '
+LEFTY;; Left pointer is at: 20
+Current lexer char is a closing quote. CLOSING QUOTE FOUND, skippi
+ng..
+the right_pointer seems to be well ahead of input string len bytes
+, returning ch=0
+read string: n
+AT STRING. found token: String, n
+
+thread '<unnamed>' (6441) panicked at fql/src/fql_compiler/parser.
+rs:136:24:
+Error parsing statement, unexpected token,  Instead found the toke
+n: Video, video expected either Frames or object images
+note: run with `RUST_BACKTRACE=1` environment variable to display 
+a backtrace
+
+Letter representation(current lexer's char): '
+LEFTY;; Left pointer is at: 20
+Current lexer char is a closing quote. CLOSING QUOTE FOUND, skippi
+ng..
+the right_pointer seems to be well ahead of input string len bytes
+, returning ch=0
+read string: n
+AT STRING. found token: String, n
+
+thread '<unnamed>' (6441) panicked at fql/src/fql_compiler/parser.
+rs:136:24:
+Error parsing statement, unexpected token,  Instead found the toke
+n: Video, video expected either Frames or object images
+note: run with `RUST_BACKTRACE=1` environment variable to display 
+a backtrace
+
+Letter representation(current lexer's char): '
+LEFTY;; Left pointer is at: 20
+Current lexer char is a closing quote. CLOSING QUOTE FOUND, skippi
+ng..
+the right_pointer seems to be well ahead of input string len bytes
+, returning ch=0
+read string: n
+AT STRING. found token: String, n
+
+thread '<unnamed>' (6441) panicked at fql/src/fql_compiler/parser.
+rs:136:24:
+Error parsing statement, unexpected token,  Instead found the toke
+n: Video, video expected either Frames or object images
+note: run with `RUST_BACKTRACE=1` environment variable to display 
+a backtrace
+

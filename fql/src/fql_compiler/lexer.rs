@@ -21,6 +21,10 @@ static KEYWORDS: LazyLock<HashMap<&'static str, TokenType>> = LazyLock::new(||{
    keywords.insert("select", TokenType::Select);
    keywords.insert("or", TokenType::Or);
    keywords.insert("from", TokenType::From);
+   keywords.insert("objectimages", TokenType::ObjectImages);
+   keywords.insert("frames", TokenType::Frames);
+   keywords.insert("detections", TokenType::Detections);
+   keywords.insert("object", TokenType::Object);
 
    keywords
 });
@@ -58,10 +62,16 @@ impl Display for TokenType{
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Token{
     pub token_type: TokenType,
     pub value: String,
+}
+
+impl Display for Token{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f,"{:?}, {}", self.token_type, self.value)
+    }
 }
 
 impl Token{
@@ -77,7 +87,7 @@ pub struct Lexer{
     input: String,
     left_pointer: u32,
     right_pointer: u32,
-    ch: u8,
+    pub ch: u8,
 }
 
 
@@ -86,7 +96,7 @@ impl Lexer{
         Lexer{
             input: String::new(),
             left_pointer: 0,
-            right_pointer: 1,
+            right_pointer: 0,
             ch: 0,
         }
     }
@@ -94,6 +104,7 @@ impl Lexer{
     pub fn new(&mut self, input: String){
        self.input = input;  
        self.read_char();
+        let ler = char::from(self.ch);
     }
 
     fn read_char(&mut self){
@@ -113,7 +124,7 @@ impl Lexer{
 
     fn is_letter(ch: u8)->bool{
        (ch >= b'a' && ch <= b'z') ||
-       (ch >= b'A' && ch <= b'Z') || ch == b'_' 
+       (ch >= b'A' && ch <= b'Z') || ch == b'_'
     }
 
     fn skip_whitespace(&mut self){
@@ -128,7 +139,7 @@ impl Lexer{
             self.read_char();
         }
 
-        let end = self.right_pointer as usize;
+        let end = self.left_pointer as usize;
         let s = &self.input[start..end];
         s.to_string()
     }
@@ -139,38 +150,68 @@ impl Lexer{
             self.read_char();
         }
 
-        let end = self.right_pointer as usize;
+        let end = self.left_pointer as usize;
         let s = &self.input[start..end];
+        println!("read num: {}", s);
         s.to_string()
     }
+   
+
+   fn closing_quote(ch: u8)->bool{
+      ch == b'\''
+   }
 
    fn read_string(&mut self) -> String{
        self.read_char();
 
        let start = self.left_pointer as usize;
-       while Lexer::is_letter(self.ch) || Lexer::is_digit(self.ch){
+       while Lexer::is_letter(self.ch) || Lexer::is_digit(self.ch) || !Lexer::closing_quote(self.ch){
            self.read_char();
        }
 
-       let end = self.right_pointer as usize;
-       self.read_char();
+       let end = self.left_pointer as usize;
+       if Lexer::closing_quote(self.ch){
+          //Current lexer char is a closing quote. CLOSING QUOTE FOUND, skipping.
+            self.read_char(); 
+       }
 
        let s = &self.input[start..end];
        s.to_string()
    }
 
-   pub fn next_token(&mut self)->Token{
-      self.skip_whitespace();
+   pub fn update_left_and_right(&mut self){
+       self.read_char();
+   }
 
+   pub fn next_token(&mut self)->Token{
+      let input_bytes = self.input.as_bytes();
+      if self.ch == 0{
+          if input_bytes[self.left_pointer as usize] == b';'{
+             //End of statement found
+
+              return Token { token_type: TokenType::Semicolon, value: ";".to_string() }
+          } 
+      }
+            self.skip_whitespace();
+
+      let ler = char::from(self.ch);
+      //Letter representation(current lexer's char): {}", ler
       match self.ch{
           b';' =>Token { token_type:  TokenType::Semicolon, value: ";".to_string() },
           b'*' =>Token {token_type: TokenType::Star,
               value: "*".to_string()},
           b'=' => Token { token_type: TokenType::EQ, value: "=".to_string() },
           b'0' => Token { token_type: TokenType::EOF, value: "".to_string() },
-          b'\'' => Token { token_type: TokenType::String, value: self.read_string(), },
+          b'\'' =>{
+               let tkn = Token { token_type: TokenType::String, value: self.read_string()};
+              //AT STRING. found token: {}", tkn
+                  tkn
+          },
           _ =>{
+              //println!("FOUND BLANK");
               if Self::is_letter(self.ch){
+                 let letter = char::from(self.ch);
+                // println!("left left_pointer at letter: {}", letter);
                  let value = self.read_identifier();
                  if let Some(token_type) = KEYWORDS.get(&value.as_str()){ 
                     return Token{token_type: token_type.clone(), value};
@@ -180,14 +221,19 @@ impl Lexer{
               }else if Self::is_digit(self.ch){
                   let num = self.read_number();
                   return Token{token_type: TokenType::Number, value: num};
-              } return Token{token_type: TokenType::Illegal, value: self.ch.to_string()}; }, }; self.read_char(); return Token { token_type: TokenType::Illegal, value: "".to_string() } 
+              }
+
+              //println!("must be illegal token..");
+              Token{token_type: TokenType::Illegal, value: self.ch.to_string()}
+             },
+      }
    } 
 
   pub fn get_keyword(t: &str)->TokenType{
          if let Some(val) = KEYWORDS.get(&t){
-             return val.clone();        
+             val.clone()        
          }else{
-             return TokenType::Illegal;
+             TokenType::Illegal
         }
   }
 
