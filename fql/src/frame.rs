@@ -1,5 +1,5 @@
 use std::{time::Duration};
-use crate::{fql_compiler::{executor::{Executor, FqlOutput, EvaluationValue}, parser::FqlOutCome}, letterbox::{LetterBoxInfo, LetterBoxedFrame}};
+use crate::{fql_compiler::{executor::{EvaluationValue, Executor, FqlOutcomeBuf, FqlOutput}, parser::FqlOutCome}, letterbox::{LetterBoxInfo, LetterBoxedFrame}};
 use ffmpeg_next::{self as ffmpeg, format::Pixel, software::scaling::{flag::Flags, context::Context}};
 use image::{DynamicImage, RgbImage};
 use opencv::{self, core::{Mat, MatTraitConst, MatTraitConstManual}, imgproc};
@@ -122,7 +122,8 @@ impl Frame{
        }
     }
 
-    pub fn process_frame(&self, session: &mut Session, fql_out: FqlOutput) ->FqlOutCome{
+    //FIX ME: evaluation of expr
+    pub fn process_frame(&self, session: &mut Session, fql_out: FqlOutput, results: &mut FqlOutcomeBuf){
         let letterboxed = self.letterbox(640);
         let tensor = letterboxed.to_tensor();
 
@@ -140,7 +141,6 @@ impl Frame{
         let output = output.index_axis(ndarray::Axis(0), 0);
         //println!("Output2's shape: {:?}", output.shape());
 
-        let mut results: Vec<String> = Vec::new();
         for pred in output.axis_iter(ndarray::Axis(0)) {
             let score = pred[4];
            /* if score < 0.5 {
@@ -199,21 +199,12 @@ impl Frame{
 
             //INTRODUCED BUG, FOR TESTING PURPOSE TO ENSURE OUTPUT REALLY IS EVER REACHING THE USER
             //OVER THE SOCKET
-            let dete = detect(&detection);
-            if let OutCome::Res(fmted) = dete{
-                results.push(fmted);
-            }else{
-                println!("Invalid result outcome got!");
-            }
-
+            results.add_detection(&detection);
         }
 
-        if results.is_empty(){
+        if results.items.is_empty(){
             println!("#(process_frame) Results is empty!");
-            FqlOutCome::NULL
-        }else{
-            println!("#(process_frame) Results is available");
-            FqlOutCome::Multiple(results)
+            results.send_message("Results is empty for frame!");
         }
     }
 

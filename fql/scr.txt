@@ -1,2 +1,4 @@
-***Select stmt****
+remember to handle memory outage for out.push on frame execution
+now to handle frame_iter from .frames file i.e no longer ffmpeg or opencv if had been saved i.e framed
+
 

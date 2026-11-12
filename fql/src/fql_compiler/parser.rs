@@ -19,6 +19,7 @@ pub enum Object {
 
 pub enum FqlOutCome{
     NULL,
+    CLEARED,
     Single(String),
     Multiple(Vec<String>),
 }
@@ -143,30 +144,39 @@ impl Parser{
                    panic!("Incorrect syntax, needed a video instead.");
                }
                */
+
+               //CAMERA MODULE OR VIDEO...
+               match self.cur_token.token_type{
+                   TokenType::Video =>{
+
+                   },
+                   TokenType::ObjectImage =>{
+
+                   },
+                   /*TokenType::Camera =>{
+
+                   }, */ 
+                   _=>{
+                       panic!("ERROR, can't work with the type given: {}. Only works with video, camera or objectimage TO mean a given picture of your own", self.cur_token.value);
+                   }
+               }
                self.expect("video");
+
                
                self.lexer.next_token();
 
                self.expect("eq");
 
-               
+                
                let url = self.cur_token.value.clone();
                stmt.url = Some(UrlSrc::Vid(url.clone()));
                self.expect("string");
 
                while !self.match_peek(TokenType::Semicolon){
+                  println!("peek token isn't semicolon continuing with loop!");
+                  //Everything must go within where from here, altered it so including even the
+                  //range for timeline.
                   match self.cur_token.token_type{
-                    TokenType::Range =>{
-                       self.expect("range");
-
-                       let start = parse_media_timestamp(&self.cur_token.value);
-
-                       self.expect("string");
-                       let end = parse_media_timestamp(&self.cur_token.value);
-                       self.expect("string");
-
-                       stmt.timeline = Some((start, end));
-                    },
                     TokenType::Where =>{
                       self.expect("where");
 
@@ -206,6 +216,31 @@ impl Parser{
                }
 
                stmt.target = Object::Detections;
+
+               while !self.match_peek(TokenType::Semicolon){
+                  println!("peek token isn't semicolon continuing with loop!");
+                  match self.cur_token.token_type{
+                    TokenType::Range =>{
+                       self.expect("range");
+
+                       let start = parse_media_timestamp(&self.cur_token.value);
+
+                       self.expect("string");
+                       let end = parse_media_timestamp(&self.cur_token.value);
+                       self.expect("string");
+
+                       stmt.timeline = Some((start, end));
+                    },
+                    TokenType::Where =>{
+                      self.expect("where");
+
+                      stmt.expr = Some(self.parse_expr(stream, &messenger));
+                    },
+                    _=>{let err = format!("Expected either a where clause or range statement!, found {} of type {}", self.cur_token.value, self.cur_token.token_type);
+                        messenger(stream, &err);
+                    },
+                  }
+               }
            },
            _=>{println!("THE escaping part......")},
         } 

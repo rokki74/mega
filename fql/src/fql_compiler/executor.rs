@@ -3,6 +3,12 @@ use std::{path::Path};
 use crate::{detection::Detection, fql_compiler::{lexer::{TokenType, Lexer}, parser::{BinaryOperation, Expression, FqlOutCome, Object, Parser, SelectStatement, StatementEnum, UrlSrc}}, image_src, model_session};
 use std::{io::{self, Write}, net::TcpStream, time::Duration};
 use crate::{video_src::{VideoSrc, FrameIter}, frame::{Frame}};
+use std::fs::{OpenOptions};
+use crate::fql_session::FqlSession;
+use crate::{detection::{detect, OutCome}};
+use crate::fql_session::{FqlSessionUsability, FqlSession};
+
+const BASE_DIR: &str = "/home/nines/Desktop/rusty/fql_data";
 
 pub struct Executor<'a>{
   parser: Parser,
@@ -28,6 +34,49 @@ pub enum EvaluationValue{
     Integer(u64),
     String(String),
     Null,
+}
+
+const MAX_OUTCOME_RESULTS:usize = 100;
+
+pub struct FqlOutcomeBuf<'a>{
+   pub items: Vec<String>,
+   fql_session: &'a mut FqlSession,
+   stream: &'a mut TcpStream,
+}
+
+impl <'a>FqlOutcomeBuf<'a>{
+    pub fn new(stream: &'a mut TcpStream, fql_session: &'a mut FqlSession)->Self{
+        FqlOutcomeBuf {
+            items: Vec::new(),
+            stream,
+            fql_session
+        }
+    }
+
+
+    pub fn add_detection(&mut self, det: &Detection){
+        let outcome_det = detect(&det);
+        if let OutCome::Res(fmted_det) = outcome_det{
+           if self.items.len() >= MAX_OUTCOME_RESULTS{
+               self.send_message(&fmted_det);
+
+              self.items.clear();
+
+              //sends both analysis and detections vecs
+              self.fql_session.save_session();
+              self.fql_session.clear_data();
+           }
+
+           self.items.push(fmted_det);
+        }else{
+            self.send_message("No results available for frame!");
+        }
+    }
+
+    #[inline]
+    pub fn send_message(&mut self, message: &str){
+        self.stream.write_all(message.as_bytes());
+    }
 }
 
 fn split_fql_statement(input: &String)->Vec<String>{
@@ -58,9 +107,8 @@ impl <'a> Executor<'a>{
        };
 
        for query in queries{
-           //println!("AT EXECUTOR, PRCESSING QUERY: {}", query);
            let stmt = self.parser.parse(query.to_string(),&mut writer, Self::send_message);
-           let fql_outcm = stmt.execute();
+           let fql_outcm = stmt.execute(&mut writer);
 
            println!("LEN OF OUTCOMES AT THE END IS: {}", fql_outcm.len());
            for outcm in fql_outcm{
@@ -94,24 +142,28 @@ impl <'a> Executor<'a>{
             FqlOutCome::NULL =>{
                 let _ = self.writer.write_all(b"No results, execution complete");
                  let _ = self.writer.flush();
+            },
+            FqlOutCome::CLEARED =>{
+                let _ = self.writer.write_all(b"Results sent!, cleared from buffer");
+                 let _ = self.writer.flush();
             }
         }
     }
 }
 
 pub trait Statement{
-    fn execute(&self)->Vec<FqlOutCome>{
+    fn execute(&self, _writer: &mut TcpStream)->Vec<FqlOutCome>{
        //println!("executing statement");
        vec![FqlOutCome::NULL]
     }
 }
 
 impl Statement for StatementEnum{
-    fn execute(&self)->Vec<FqlOutCome>{
+    fn execute(&self, writer: &mut TcpStream)->Vec<FqlOutCome>{
         match self{
             StatementEnum::SelectStatement(stmt) => {
                 let _ = io::stdout().flush();
-                stmt.execute()
+                stmt.execute(writer)
             },
             StatementEnum::VOID =>{
                 println!("(Executor/Statement) statement enum is void..");
@@ -123,36 +175,88 @@ impl Statement for StatementEnum{
 }
 
 impl Statement for SelectStatement{
-    fn execute(&self) -> Vec<FqlOutCome>{
+    fn execute(&self, writer: &mut TcpStream) -> Vec<FqlOutCome>{
         if let Some(url_src) = &self.url{
             let base_url = "/home/nines/Desktop/rusty/mega/fql/assets/";
             let _ = io::stdout().flush();
+
             match url_src{
                 UrlSrc::Vid(file_src) =>{
                     println!("The url_src is vid");
                     let file_src = &(base_url.to_string() + file_src);
+                    let (mut fql_sess,usability) = FqlSession::get_session(file_src);
+                    let sess_dir = BASE_DIR.to_string() + &fql_sess.name;
+                    let mut sess_buf = FqlOutcomeBuf::new(writer, &mut fql_sess);
+                    //FIX ME: consume usability
+                    //AFTERARDS EITHER CHOOSE TO USE PRE SAVED SESSION DATA i.e detections, frames,
+                    //analysis etc OR NOT. CURRENTLY NOT
+                   
+                   let session = model_session::init_yolo_sesion(true);
+                    match usability{
+                       FqlSessionUsability::ANALYSISUSABLE =>{
+                           //So already there were analysis and now if the current request is same
+                           //then return it..
+                           if old_analysis{
+                              let iter = fql_sess.read_analysis(); 
+                              for analysis in iter{
+                                  writer.write_all(analysis.as_bytes());
+                              }
+                           }
+                       },
+                       FqlSessionUsability::DETECTIONUSABLE =>{
+                            //So already there were detections and now if the current request is same
+                           //then return it..
+                           match self.target{
+                               Object::Detections =>{
+                                   if let Some(tm) = self.timeline{
+                                      let (start, end) = tm;
+                                       let iter = fql_sess.read_detections(); 
+                                       //read out the read_start, end_start from detections file
+                                      if start >= read_start | end >= read_end {
+                                         for det in iter{
+                                             writer.write_all(det.to_string().as_bytes());
+                                         } 
+                                      }
+                                   }else{
+                                       for det in iter{
+                                             writer.write_all(det.to_string().as_bytes());
+                                       }
+                                   }
+
+                               },
+                               _=>(),
+                            }
+                       }, 
+                       FqlSessionUsability::FRAMEUSABLE =>{
+                           //Implicitly using frms_iter from file, executing them ..
+                            let frms_iter = fql_sess.read_frames(); 
+                            let outcome = self.execute_frames(frms_iter, &mut session, &mut sess_buf);
+                            return vec![outcome]
+                       },
+                       _ =>(),
+                   }
+
                     let file_path = Path::new(&file_src);
                       if file_path.exists(){
-                         let (frms_iter, mut session) = VideoSrc::open(&file_src, &self.preference); 
+                         let (frms_iter, _) = VideoSrc::open(&file_src, &self.preference); 
                          
-                        let _ = io::stdout().flush();
-                        self.execute_frames(frms_iter, &mut session)
-
+                        let outcome = self.execute_frames(frms_iter, &mut session, &mut sess_buf);
+                        vec![outcome]
                       }else{
+
                           //println!("Video file provided: {} doesn't exist", file_src);
                           vec![FqlOutCome::NULL]
                       }
                 },
                 UrlSrc::Img(img_url) =>{
                     println!("The url_src is img");
-                   let img_url = &(base_url.to_string() + img_url);
-                   let (frm, mut session) =  image_src::open_image(&img_url);
+                    let img_url = &(base_url.to_string() + img_url);
+                    let mut fql_sess = FqlSession::get_empty();
+                    let mut sess_buf = FqlOutcomeBuf::new(writer, &mut fql_sess);
+                    let (frm, mut session) =  image_src::open_image(&img_url);
                     let _ = io::stdout().flush();
-                   if let Some(f) = self.execute_frame(frm, &mut session){
-                      vec![f]
-                   }else{
-                       vec![FqlOutCome::NULL]
-                   }
+                    let outcome = self.execute_frame(frm, &mut session, &mut sess_buf);
+                    vec![outcome]
                 },
             }
         }else{
@@ -162,7 +266,7 @@ impl Statement for SelectStatement{
 }
 
 impl SelectStatement{
-    fn execute_frame(&self, frame: Frame, session: &mut session::Session)->Option<FqlOutCome>{
+    fn execute_frame(&self, frame: Frame, session: &mut session::Session, sess_buf: &mut FqlOutcomeBuf)->FqlOutCome{
         let fql_out_type = match self.target{
             Object::ObjectImages => FqlOutputType::SNAPSHOTS,
             Object::Detections => FqlOutputType::DETECTIONS,
@@ -182,52 +286,38 @@ impl SelectStatement{
         println!("(FQLOUTPUT)  Processing your wants, fql_out: {:#?}", fql_out);
 
         let _ = io::stdout().flush();
-        Some(frame.process_frame(session, fql_out))
+        frame.process_frame(session, fql_out, sess_buf);
+
+        FqlOutCome::Multiple(sess_buf.items.clone())
     }
 
-    fn execute_frames(&self, frms_iter: FrameIter, session: &mut session::Session)->Vec<FqlOutCome>{
-       let mut out: Vec<FqlOutCome> = Vec::new();
-       let max_counts = 50;
-        let mut counts = 0;
+    fn execute_frames(&self, frms_iter: FrameIter, session: &mut session::Session, sess_buf: &mut FqlOutcomeBuf)->FqlOutCome{
+       let frames_file = BASE_DIR.to_string() + &sess_buf.fql_session.name + ".frames";
+       let mut file = OpenOptions::new()
+           .create(true)
+           .write(true)
+           .append(true)
+           .open(frames_file).unwrap();
+       
+
        match frms_iter{
             FrameIter::Ocv(ocvs) =>{
-                //returning at 50
                 for frm in ocvs{
-                    counts +=1;
-                    if counts > max_counts{
-                        println!("{} reached..", max_counts);
-                        break;
-                    }
-                    
-                    if let Some(f_out) = self.execute_frame(frm, session){
-                        out.push(f_out);
-                    }else{
-                        out.push(FqlOutCome::NULL);
-                    }
-                    let _ = io::stdout().flush();
+                    sess_buf.fql_session.save_frame(&mut file, &frm);
+                    let _ = self.execute_frame(frm, session, sess_buf);
                 }
-
-                out
             },
             FrameIter::Ffm(ffms)=>{
                 for frm in ffms{
-                    //returning at 50
-                    counts +=1;
-                    if counts > max_counts{
-                        return out;
-                    }
-                    if let Some(f_out) = self.execute_frame(frm, session){
-                        out.push(f_out);
-                    }else{
-                        println!("pushing null into outcms");
-                        out.push(FqlOutCome::NULL);
-                    }
-                    let _ = io::stdout().flush();
-                }
+                    sess_buf.fql_session.save_frame(&mut file, &frm);
 
-                out
+                    
+                    let _ = self.execute_frame(frm, session, sess_buf);
+                }
             },
        }
+
+       FqlOutCome::CLEARED
     }
 
     pub fn evaluate(expr: Expression, detection: &Detection)->EvaluationValue{
@@ -358,10 +448,19 @@ impl SelectStatement{
     }
 }
 
+pub fn parse_media_timestamps(start: &str, end: &str)->(Duration, Duration){
+    (parse_media_timestamp(start), parse_media_timestamp(end))
+}
+
+
 pub fn parse_media_timestamp(timestamp: &str)->Duration{
         let parts: Vec<&str> = timestamp.split(':').collect();
 
         let (hours, minutes, seconds) = match parts.len(){
+            1 =>{
+                let secs: u64 = parts[0].parse().expect("Invalid Seconds");
+                (0, 0, secs)
+            }
             2  =>{
                  let mins: u64 = parts[0].parse().expect("Invalid Minutes");
                  let secs: u64 = parts[1].parse().expect("Invalid Seconds");

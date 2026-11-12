@@ -1,3 +1,6 @@
+use std::io;
+use std::sync::mpsc::Receiver;
+
 use crate::{frame::Frame,ffm_frame::FfmFrame, opencv_frame::OpenCvFrame};
 use crate::model_session;
 use ort::{session::Session};
@@ -28,6 +31,7 @@ impl Iterator for VideoSrc{
 pub enum FrameIter{
     Ocv(OpenCvFrame),
     Ffm(FfmFrame),
+    FileSourced(Receiver<io::Result<String>>),
 }
 
 impl Iterator for FrameIter{
@@ -39,7 +43,10 @@ impl Iterator for FrameIter{
            },
            FrameIter::Ffm(iter) =>{
                iter.next()
-           }
+           },
+           FrameIter::FileSourced(iter) =>{
+               iter.next()
+          },
        } 
     }
 }
