@@ -4,7 +4,6 @@ use crate::{detection::Detection, fql_compiler::{lexer::{TokenType, Lexer}, pars
 use std::{io::{self, Write}, net::TcpStream, time::Duration};
 use crate::{video_src::{VideoSrc, FrameIter}, frame::{Frame}};
 use std::fs::{OpenOptions};
-use crate::fql_session::FqlSession;
 use crate::{detection::{detect, OutCome}};
 use crate::fql_session::{FqlSessionUsability, FqlSession};
 
@@ -196,9 +195,10 @@ impl Statement for SelectStatement{
                        FqlSessionUsability::ANALYSISUSABLE =>{
                            //So already there were analysis and now if the current request is same
                            //then return it..
-                           if old_analysis{
-                              let iter = fql_sess.read_analysis(); 
-                              for analysis in iter{
+                           if self.old_analysis{
+                              let iter = fql_sess.read_analysis().unwrap(); 
+                              for res in iter{
+                                  let analysis = res.unwrap();
                                   writer.write_all(analysis.as_bytes());
                               }
                            }
@@ -208,18 +208,36 @@ impl Statement for SelectStatement{
                            //then return it..
                            match self.target{
                                Object::Detections =>{
+                                   let iter = fql_sess.read_detections().unwrap(); 
                                    if let Some(tm) = self.timeline{
                                       let (start, end) = tm;
-                                       let iter = fql_sess.read_detections(); 
                                        //read out the read_start, end_start from detections file
-                                      if start >= read_start | end >= read_end {
-                                         for det in iter{
-                                             writer.write_all(det.to_string().as_bytes());
+                                         for res in iter{
+                                             let det = res.unwrap();
+                                             if let Some(timestamp) = det.timestamp{
+                                                 //FIX: need better analytics of getting the exact
+                                                 //needed detections
+                                                 if start <= timestamp && end >= timestamp{
+                                                    let outcm = detect(&det);
+                                                     match outcm{
+                                                         OutCome::Res(out)=>{
+                                                         writer.write_all(out.as_bytes());
+                                                         },
+                                                         OutCome::NULL=>{println!("skipping read det as is outcome null");},
+                                                     }
+                                                 }
+                                              }
                                          } 
-                                      }
                                    }else{
-                                       for det in iter{
-                                             writer.write_all(det.to_string().as_bytes());
+                                       for res in iter{
+                                             let det = res.unwrap();
+                                             let outcm = detect(&det);
+                                             match outcm{
+                                                 OutCome::Res(out)=>{
+                                                     writer.write_all(out.as_bytes());
+                                                 },
+                                                 OutCome::NULL=>{println!("skipping read det as is outcome null");},
+                                             }
                                        }
                                    }
 
@@ -315,6 +333,12 @@ impl SelectStatement{
                     let _ = self.execute_frame(frm, session, sess_buf);
                 }
             },
+            FrameIter::FileSourced(recv)=>{
+                for res in recv{
+                    let frm = res.unwrap(); 
+                    let _ = self.execute_frame(frm, session, sess_buf);
+                }
+            }
        }
 
        FqlOutCome::CLEARED

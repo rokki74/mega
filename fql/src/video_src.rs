@@ -31,7 +31,7 @@ impl Iterator for VideoSrc{
 pub enum FrameIter{
     Ocv(OpenCvFrame),
     Ffm(FfmFrame),
-    FileSourced(Receiver<io::Result<String>>),
+    FileSourced(Receiver<io::Result<Frame>>),
 }
 
 impl Iterator for FrameIter{

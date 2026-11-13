@@ -292,7 +292,7 @@ impl FqlSession{
        Ok(rx)
     }
 
-    pub fn read_detections(&self)->io::Result<Receiver<io::Result<String>>>{
+    pub fn read_detections(&self)->io::Result<Receiver<io::Result<Detection>>>{
         let detections_file = BASE_DIR.to_string() + &self.name+".detections"; 
         let file = OpenOptions::new()
            .read(true)

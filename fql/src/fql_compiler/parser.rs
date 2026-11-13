@@ -63,6 +63,7 @@ pub struct SelectStatement{
     pub timeline: Option<(Duration, Duration)>,
     pub expr: Option<Expression>,
     pub preference: ApiPref,
+    pub old_analysis: bool,
 }
 
 impl SelectStatement{
@@ -73,6 +74,7 @@ impl SelectStatement{
             timeline: None,
             expr: None,
             preference: ApiPref::OCV,
+            old_analysis:  true,
         }
     }
 }
@@ -145,6 +147,7 @@ impl Parser{
                }
                */
 
+               //FIX ME
                //CAMERA MODULE OR VIDEO...
                match self.cur_token.token_type{
                    TokenType::Video =>{
