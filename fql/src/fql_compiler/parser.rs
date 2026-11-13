@@ -93,6 +93,7 @@ impl Parser{
 pub enum UrlSrc{
     Vid(String),
     Img(String),
+    Cam(String),
 }
 
 pub enum StatementEnum{
@@ -151,28 +152,37 @@ impl Parser{
                //CAMERA MODULE OR VIDEO...
                match self.cur_token.token_type{
                    TokenType::Video =>{
+                        self.expect("video");
 
+                       self.lexer.next_token();
+                       self.expect("eq");
+                        
+                       let url = self.cur_token.value.clone();
+                       stmt.url = Some(UrlSrc::Vid(url.clone()));
                    },
                    TokenType::ObjectImage =>{
+                       self.expect("objectimage");
 
+                       self.lexer.next_token();
+                       self.expect("eq");
+                        
+                       let url = self.cur_token.value.clone();
+                       stmt.url = Some(UrlSrc::Img(url.clone()));
                    },
-                   /*TokenType::Camera =>{
+                   TokenType::Camera =>{
+                        self.expect("camera");
 
-                   }, */ 
+                       self.lexer.next_token();
+                       self.expect("eq");
+                        
+                       let url = self.cur_token.value.clone();
+                       stmt.url = Some(UrlSrc::Cam(url.clone()));
+                   }, 
                    _=>{
                        panic!("ERROR, can't work with the type given: {}. Only works with video, camera or objectimage TO mean a given picture of your own", self.cur_token.value);
                    }
                }
-               self.expect("video");
-
                
-               self.lexer.next_token();
-
-               self.expect("eq");
-
-                
-               let url = self.cur_token.value.clone();
-               stmt.url = Some(UrlSrc::Vid(url.clone()));
                self.expect("string");
 
                while !self.match_peek(TokenType::Semicolon){

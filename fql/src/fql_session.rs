@@ -299,7 +299,7 @@ impl FqlSession{
            .write(false)
            .open(detections_file);
 
-        let (tx, rx) = sync_channel::<io::Result<String>>(5);
+        let (tx, rx) = sync_channel::<io::Result<Detection>>(5);
         let reader = BufReader::new(file);
         thread::spawn(move ||{
             for line in reader{
@@ -321,7 +321,7 @@ impl FqlSession{
            .write(false)
            .open(frames_file);
 
-        let (tx, rx) = sync_channel::<io::Result<String>>(5);
+        let (tx, rx) = sync_channel::<io::Result<Frame>>(5);
         let reader = BufReader::new(file);
         thread::spawn(move ||{
             for line in reader{
@@ -333,6 +333,8 @@ impl FqlSession{
             }
         });
 
-        FrameIter::FileSourced(rx)
+        let iter = rx.into_iter()
+            .filter_map(|result| result.ok());
+        FrameIter::FileSourced(Box::new(iter))
     }
 }

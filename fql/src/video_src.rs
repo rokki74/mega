@@ -1,7 +1,4 @@
-use std::io;
-use std::sync::mpsc::Receiver;
-
-use crate::{frame::Frame,ffm_frame::FfmFrame, opencv_frame::OpenCvFrame};
+use crate::{frame::Frame,ffm_frame::FfmFrame, opencv_frame::OpenCvFrame, cam_frame::CamFrame};
 use crate::model_session;
 use ort::{session::Session};
 
@@ -10,6 +7,7 @@ use ort::{session::Session};
 pub enum ApiPref{
     OCV,
     FFP,
+    CAM,
 }
 
 pub enum VideoSrc{
@@ -31,7 +29,9 @@ impl Iterator for VideoSrc{
 pub enum FrameIter{
     Ocv(OpenCvFrame),
     Ffm(FfmFrame),
-    FileSourced(Receiver<io::Result<Frame>>),
+    FileSourced(Box<dyn Iterator<Item=Frame>>),
+    //FIX ME: later adding CAM(CamFrame)
+    Cam(CamFrame),
 }
 
 impl Iterator for FrameIter{
@@ -47,6 +47,9 @@ impl Iterator for FrameIter{
            FrameIter::FileSourced(iter) =>{
                iter.next()
           },
+          FrameIter::Cam(cm)=>{
+              cm.next()
+          }
        } 
     }
 }
@@ -65,6 +68,11 @@ impl VideoSrc{
            ApiPref::FFP =>{
                let frms_iter = FfmFrame::open(url);
                (FrameIter::Ffm(frms_iter), session)
+           },
+           ApiPref::CAM =>{
+               //takes in cam id
+               let frms_iter = CamFrame::open(0);
+               (FrameIter::Cam(frms_iter), session)
            }
        }
     }

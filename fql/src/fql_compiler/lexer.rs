@@ -41,9 +41,7 @@ pub enum TokenType{
     Where,
     And,
     Or,
-    ObjectImage,
     Object,
-    Video,
     Range,
     Semicolon,
     String,
@@ -53,6 +51,9 @@ pub enum TokenType{
     Frames,
     ObjectImages,
     Detections,
+    Video,
+    ObjectImage,
+    Camera,
     EOF,
 }
 

@@ -184,22 +184,21 @@ impl Statement for SelectStatement{
                     println!("The url_src is vid");
                     let file_src = &(base_url.to_string() + file_src);
                     let (mut fql_sess,usability) = FqlSession::get_session(file_src);
-                    let sess_dir = BASE_DIR.to_string() + &fql_sess.name;
                     let mut sess_buf = FqlOutcomeBuf::new(writer, &mut fql_sess);
                     //FIX ME: consume usability
                     //AFTERARDS EITHER CHOOSE TO USE PRE SAVED SESSION DATA i.e detections, frames,
                     //analysis etc OR NOT. CURRENTLY NOT
                    
-                   let session = model_session::init_yolo_sesion(true);
+                   let mut session = model_session::init_yolo_sesion(true);
                     match usability{
                        FqlSessionUsability::ANALYSISUSABLE =>{
                            //So already there were analysis and now if the current request is same
                            //then return it..
                            if self.old_analysis{
-                              let iter = fql_sess.read_analysis().unwrap(); 
+                              let iter = sess_buf.fql_session.read_analysis().unwrap(); 
                               for res in iter{
                                   let analysis = res.unwrap();
-                                  writer.write_all(analysis.as_bytes());
+                                  sess_buf.send_message(&analysis);
                               }
                            }
                        },
@@ -208,7 +207,7 @@ impl Statement for SelectStatement{
                            //then return it..
                            match self.target{
                                Object::Detections =>{
-                                   let iter = fql_sess.read_detections().unwrap(); 
+                                   let iter = sess_buf.fql_session.read_detections().unwrap(); 
                                    if let Some(tm) = self.timeline{
                                       let (start, end) = tm;
                                        //read out the read_start, end_start from detections file
@@ -221,9 +220,9 @@ impl Statement for SelectStatement{
                                                     let outcm = detect(&det);
                                                      match outcm{
                                                          OutCome::Res(out)=>{
-                                                         writer.write_all(out.as_bytes());
+                                                              sess_buf.send_message(&out);
                                                          },
-                                                         OutCome::NULL=>{println!("skipping read det as is outcome null");},
+                                                         OutCome::NULL=>{sess_buf.send_message("Found null outcome from detection, skipping read det");},
                                                      }
                                                  }
                                               }
@@ -234,7 +233,7 @@ impl Statement for SelectStatement{
                                              let outcm = detect(&det);
                                              match outcm{
                                                  OutCome::Res(out)=>{
-                                                     writer.write_all(out.as_bytes());
+                                                     sess_buf.send_message(&out);
                                                  },
                                                  OutCome::NULL=>{println!("skipping read det as is outcome null");},
                                              }
@@ -247,7 +246,7 @@ impl Statement for SelectStatement{
                        }, 
                        FqlSessionUsability::FRAMEUSABLE =>{
                            //Implicitly using frms_iter from file, executing them ..
-                            let frms_iter = fql_sess.read_frames(); 
+                            let frms_iter = sess_buf.fql_session.read_frames(); 
                             let outcome = self.execute_frames(frms_iter, &mut session, &mut sess_buf);
                             return vec![outcome]
                        },
@@ -274,6 +273,14 @@ impl Statement for SelectStatement{
                     let (frm, mut session) =  image_src::open_image(&img_url);
                     let _ = io::stdout().flush();
                     let outcome = self.execute_frame(frm, &mut session, &mut sess_buf);
+                    vec![outcome]
+                },
+                UrlSrc::Cam(cam_id)=>{
+                    //Consume from camera! finally coded it, yes
+                    let (frms_iter, mut session) = VideoSrc::open(&cam_id, &self.preference); 
+                    let mut fql_sess = FqlSession::get_empty();
+                    let mut sess_buf = FqlOutcomeBuf::new(writer, &mut fql_sess);
+                    let outcome = self.execute_frames(frms_iter, &mut session, &mut sess_buf);
                     vec![outcome]
                 },
             }
@@ -328,14 +335,17 @@ impl SelectStatement{
             FrameIter::Ffm(ffms)=>{
                 for frm in ffms{
                     sess_buf.fql_session.save_frame(&mut file, &frm);
-
-                    
                     let _ = self.execute_frame(frm, session, sess_buf);
                 }
             },
-            FrameIter::FileSourced(recv)=>{
-                for res in recv{
-                    let frm = res.unwrap(); 
+            FrameIter::FileSourced(iter)=>{
+                for frm in iter{
+                    let _ = self.execute_frame(frm, session, sess_buf);
+                }
+            },
+            FrameIter::Cam(cam_iter)=>{
+                for frm in cam_iter{
+                    sess_buf.fql_session.save_frame(&mut file, &frm);
                     let _ = self.execute_frame(frm, session, sess_buf);
                 }
             }
