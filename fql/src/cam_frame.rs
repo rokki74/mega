@@ -32,7 +32,7 @@ impl Iterator for CamFrame{
 }
 
 impl CamFrame{
-    pub fn open(_cam_id: u32)->Self{
+    pub fn open(_cam_id: i32)->Self{
         let mat = Mat::default();
         let cam = VideoCapture::new(0,
             CAP_ANY,

@@ -172,7 +172,7 @@ impl FqlSession{
            .create(true)
            .write(true)
            .append(false)
-           .open(sess_file);
+           .open(sess_file).unwrap();
 
        let mut flags = 0u8; 
        
@@ -184,7 +184,7 @@ impl FqlSession{
        if self.meta.framed {flags |= 1u8 << 3};
        if self.meta.completed {flags |= 1u8 << 2};
 
-       file.write_all(&[flags]).unwrap();
+       file.unwrap().write_all(&[flags]).unwrap();
 
        println!("session {:?} saved successfully!", self.name);
     }
@@ -197,16 +197,16 @@ impl FqlSession{
            .create(true)
            .write(true)
            .append(true)
-           .open(analysis_file);
+           .open(analysis_file).unwrap();
 
        for datum in self.out.analysis_out{
-           file.write_all(datum.as_bytes());
+           file.unwrap().write_all(datum.as_bytes());
        }
 
        self.meta.analyzed = true;
        //for next reader to know whether anaalysis completed..
        self.meta.completed = true;
-       self.out.analysis_out.clear().expect("can't clear vec for analysis");
+       self.out.analysis_out.expect("no value").clear();
     }
 
     fn save_detections(&mut self){
@@ -215,15 +215,15 @@ impl FqlSession{
            .create(true)
            .write(true)
            .append(true)
-           .open(detections_file);
+           .open(detections_file).unwrap();
 
        for datum in self.out.detections_out{
-           file.write_all(datum.as_bytes());
+           file.unwrap().write_all(datum.as_bytes());
        }
 
        self.meta.detected = true;
        self.meta.completed = true;
-       self.out.detections_out.clear();
+       self.out.detections_out.expect("no value").clear();
     }
 
     #[cfg(unix)]
@@ -274,16 +274,14 @@ impl FqlSession{
        let file = OpenOptions::new()
            .read(true)
            .write(false)
-           .open(analysis_file);
+           .open(analysis_file).unwrap();
 
        let (tx, rx) = sync_channel::<io::Result<String>>(5);
 
        let reader = BufReader::new(file);
        thread::spawn(move ||{
-           for line in reader{
-              let failed = line.is_err();
-
-              if tx.send(line?).is_err() || failed{
+           for line in reader.lines(){
+              if tx.send(line).is_err(){
                 break;
               }
            }
@@ -297,15 +295,14 @@ impl FqlSession{
         let file = OpenOptions::new()
            .read(true)
            .write(false)
-           .open(detections_file);
+           .open(detections_file).unwrap();
 
         let (tx, rx) = sync_channel::<io::Result<Detection>>(5);
         let reader = BufReader::new(file);
         thread::spawn(move ||{
-            for line in reader{
-                let failed = line.is_err();
-
-                if tx.send(line?).is_err() || failed{
+            for line in reader.lines(){
+                //FIx: parse into detection
+                if tx.send(det).is_err(){
                     break;
                 }
             }
@@ -319,15 +316,14 @@ impl FqlSession{
         let file = OpenOptions::new()
            .read(true)
            .write(false)
-           .open(frames_file);
+           .open(frames_file).unwrap();
 
         let (tx, rx) = sync_channel::<io::Result<Frame>>(5);
         let reader = BufReader::new(file);
         thread::spawn(move ||{
-            for line in reader{
-                let failed = line.is_err();
-
-                if tx.send(line?).is_err() || failed{
+            for line in reader.lines(){
+                //FIX need to parse frames
+                if tx.send(frm).is_err(){
                     break;
                 }
             }

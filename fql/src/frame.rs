@@ -6,7 +6,7 @@ use opencv::{self, core::{Mat, MatTraitConst, MatTraitConstManual}, imgproc};
 use ort::{value::TensorRef, session::Session};
 use ndarray::Array4;
 use crate::{detection::{Detection, detect, OutCome}};
-
+use crate::display_frame;
 
 #[derive(Debug, Clone)]
 pub enum PixelFormat{
@@ -141,6 +141,7 @@ impl Frame{
         let output = output.index_axis(ndarray::Axis(0), 0);
         //println!("Output2's shape: {:?}", output.shape());
 
+        let mut detections: Vec<Detection> = Vec::new();
         for pred in output.axis_iter(ndarray::Axis(0)) {
             let score = pred[4];
            /* if score < 0.5 {
@@ -197,10 +198,16 @@ impl Frame{
            }
             */
 
+            
+
+            detections.push(detection.clone());
             //INTRODUCED BUG, FOR TESTING PURPOSE TO ENSURE OUTPUT REALLY IS EVER REACHING THE USER
             //OVER THE SOCKET
             results.add_detection(&detection);
         }
+        //display_frame?
+        display_frame::show(detections, &self);
+
 
         if results.items.is_empty(){
             println!("#(process_frame) Results is empty!");

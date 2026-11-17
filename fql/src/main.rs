@@ -11,6 +11,8 @@ pub mod model_session;
 pub mod tracker;
 pub mod fql_session;
 pub mod cam_frame;
+pub mod display_frame;
+
 
 use std::{io::{BufReader, BufRead, Write}, net::{TcpListener, TcpStream}, thread};
 use crate::{fql_compiler::executor::Executor};
